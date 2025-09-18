@@ -1,19 +1,19 @@
-🚀 Google Maps Native SDK (Flutter/FlutterFlow)
+﻿ðŸš€ Google Maps Native SDK (Flutter/FlutterFlow)
 
-- Nativo Android (Java) e iOS (Swift) + Flutter, com foco em mobilidade (ex.: táxi): markers, polylines, câmera, estilos, cache de ícones, eventos e navegação leve com voz. Bilingue (EN/PT-BR) abaixo.
+- Nativo Android (Java) e iOS (Swift) + Flutter, com foco em mobilidade (ex.: tÃ¡xi): markers, polylines, cÃ¢mera, estilos, cache de Ã­cones, eventos e navegaÃ§Ã£o leve com voz. Bilingue (EN/PT-BR) abaixo.
 
 **Highlights**
-- 🗺️ PlatformView nativo (AndroidView / UiKitView)
-- 📍 Markers com ícone por URL (cache memória+disco), âncora, rotação e z-index
-- ➿ Polylines (lista de pontos ou polyline codificado) com update in‑place
-- 🎥 Câmera: move/animate, fit bounds com padding
-- 🎨 Estilo: JSON ou tint por cor (`setMapColor`)
-- 🚦 Extras: tráfego, prédios, padding, snapshot
-- 🧭 Eventos: `onMarkerTap`, `onMapLoaded`
-- 🌐 Web: mapa interativo com Google Maps JS (carregamento dinâmico)
-- 🧠 Routes API v2 + Matriz de ETAs e TBT (voz)
+- ðŸ—ºï¸ PlatformView nativo (AndroidView / UiKitView)
+- ðŸ“ Markers com Ã­cone por URL (cache memÃ³ria+disco), Ã¢ncora, rotaÃ§Ã£o e z-index
+- âž¿ Polylines (lista de pontos ou polyline codificado) com update inâ€‘place
+- ðŸŽ¥ CÃ¢mera: move/animate, fit bounds com padding
+- ðŸŽ¨ Estilo: JSON ou tint por cor (`setMapColor`)
+- ðŸš¦ Extras: trÃ¡fego, prÃ©dios, padding, snapshot
+- ðŸ§­ Eventos: `onMarkerTap`, `onMapLoaded`
+- ðŸŒ Web: mapa interativo com Google Maps JS (carregamento dinÃ¢mico)
+- ðŸ§  Routes API v2 + Matriz de ETAs e TBT (voz)
 
-**Instalação Rápida**
+**InstalaÃ§Ã£o RÃ¡pida**
 - App Flutter
   - `flutter pub add google_maps_native_sdk`
   - Android (`AndroidManifest.xml`):
@@ -25,7 +25,7 @@
   - Use `GoogleMapView(webApiKey: 'YOUR_WEB_MAPS_JS_API_KEY', ...)` OU adicione em `web/index.html`:
     - `<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_WEB_MAPS_JS_API_KEY&libraries=geometry&v=weekly"></script>`
 
-**Uso Básico**
+**Uso BÃ¡sico**
 ```dart
 GoogleMapController? controller;
 GoogleMapView(
@@ -33,14 +33,14 @@ GoogleMapView(
   trafficEnabled: true,
   onMapCreated: (c) async {
     controller = c;
-    await c.onMapLoaded; // ✅ tiles & style prontos
+    await c.onMapLoaded; // âœ… tiles & style prontos
     await c.addMarker(MarkerOptions(id: 'a', position: LatLng(-23.56, -46.65), title: 'Hello'));
   },
 );
 ```
 
 **Routes API (v2)**
-- `RoutesApi.computeRoutes`: alternativas, route modifiers (evitar pedágio/rodovia/balsa), waypoints avançados (sideOfRoad/via), toll info, polyline quality, units/language, FieldMask
+- `RoutesApi.computeRoutes`: alternativas, route modifiers (evitar pedÃ¡gio/rodovia/balsa), waypoints avanÃ§ados (sideOfRoad/via), toll info, polyline quality, units/language, FieldMask
 - `RoutesApi.computeRouteMatrix`: ETAs em lote
 ```dart
 final res = await RoutesApi.computeRoutes(
@@ -57,7 +57,7 @@ for (final r in res.routes) {
 }
 ```
 
-**Navegação (TBT + Voz + Follow)**
+**NavegaÃ§Ã£o (TBT + Voz + Follow)**
 ```dart
 final session = await MapNavigator.start(
   controller: controller!,
@@ -69,7 +69,7 @@ final session = await MapNavigator.start(
   ),
 );
 // Alimente sua UI:
-session.onProgress.listen((p) {/* ETA e distância restante */});
+session.onProgress.listen((p) {/* ETA e distÃ¢ncia restante */});
 session.onInstruction.listen((i) {/* texto + manobra */});
 session.onState.listen((s) {/* navigating/offRoute/rerouting */});
 ```
@@ -93,45 +93,46 @@ GoogleMapView(
 
 **FlutterFlow (Helpers)**
 - Em `onMapCreated`: `GmnsNavHub.setController(controller)`
-- Ações prontas:
+- AÃ§Ãµes prontas:
   - `await GmnsNavHub.computeRoutesAndDraw(...)`
   - `await GmnsNavHub.chooseActiveRoute(index)`
   - `await GmnsNavHub.startNavigation(...) / await GmnsNavHub.stopNavigation()`
   - `await GmnsNavHub.recenter()` / `await GmnsNavHub.overview()`
 - Guia dedicado: `docs/FLUTTERFLOW_HELPERS.md`
 
-**Scripts Úteis (cheat sheet)**
-- 📦 `flutter pub get` — instalar deps
-- ▶️ `flutter run -d android` — rodar Android
-- 🍎 `flutter run -d ios` — rodar iOS
-- 🌐 `flutter config --enable-web` — habilitar Web
-- 🧪 `flutter run -d chrome` — rodar no Chrome
-- 🏗️ `flutter build web --release` — build Web
-- 🧹 `flutter clean` — limpar cache de build
+**Scripts Ãšteis (cheat sheet)**
+- ðŸ“¦ `flutter pub get` â€” instalar deps
+- â–¶ï¸ `flutter run -d android` â€” rodar Android
+- ðŸŽ `flutter run -d ios` â€” rodar iOS
+- ðŸŒ `flutter config --enable-web` â€” habilitar Web
+- ðŸ§ª `flutter run -d chrome` â€” rodar no Chrome
+- ðŸ—ï¸ `flutter build web --release` â€” build Web
+- ðŸ§¹ `flutter clean` â€” limpar cache de build
 
-**Boas Práticas**
-- 🔋 Use `onMapLoaded` antes de adicionar overlays pesados
-- 🐍 “Snake” realtime: decime pontos + `updatePolylinePoints` (evite remover/adicionar a cada frame)
-- 🧱 `setPadding` para não encobrir UI (bottom sheet, etc.)
-- 🚘 `updateMarker` para mover o driver (suavize no Dart, se quiser)
+**Boas PrÃ¡ticas**
+- ðŸ”‹ Use `onMapLoaded` antes de adicionar overlays pesados
+- ðŸ â€œSnakeâ€ realtime: decime pontos + `updatePolylinePoints` (evite remover/adicionar a cada frame)
+- ðŸ§± `setPadding` para nÃ£o encobrir UI (bottom sheet, etc.)
+- ðŸš˜ `updateMarker` para mover o driver (suavize no Dart, se quiser)
 
-**Notas / Limitações**
-- 🔒 Permissões de localização são do app (ex.: `permission_handler`)
-- 🧩 Clustering ainda não exposto
-- 📡 Offline completo não suportado (use cache do SDK + tiles custom)
-- 🌐 Web: `setMyLocationEnabled` é no‑op; `takeSnapshot()` não disponível na JS API
+**Notas / LimitaÃ§Ãµes**
+- ðŸ”’ PermissÃµes de localizaÃ§Ã£o sÃ£o do app (ex.: `permission_handler`)
+- ðŸ§© Clustering ainda nÃ£o exposto
+- ðŸ“¡ Offline completo nÃ£o suportado (use cache do SDK + tiles custom)
+- ðŸŒ Web: `setMyLocationEnabled` Ã© noâ€‘op; `takeSnapshot()` nÃ£o disponÃ­vel na JS API
 
 **Exemplos**
-- `example/lib/routes_tbt_demo.dart` — rotas alternativas, troca de rota, TBT + eventos
-- Android Auto (referência): `example/android-auto-sample/README.md`
+- `example/lib/routes_tbt_demo.dart` â€” rotas alternativas, troca de rota, TBT + eventos
+- Android Auto (referÃªncia): `example/android-auto-sample/README.md`
 
 **FAQ**
 - Web: erro `platformViewRegistry`
-  - Atualize Flutter; este plugin usa o registro padrão de PlatformView no Web
-- Conflito com pacote `web` (meu app é só iOS/Android)
-  - O plugin não exige `package:web` no mobile. Rode `flutter clean && flutter pub get`
-- TTS não fala
-  - Verifique volume/áudio; em iOS configure AVAudioSession; ajuste `ttsRate/ttsPitch`
+  - Atualize Flutter; este plugin usa o registro padrÃ£o de PlatformView no Web
+- Conflito com pacote `web` (meu app Ã© sÃ³ iOS/Android)
+  - O plugin nÃ£o exige `package:web` no mobile. Rode `flutter clean && flutter pub get`
+- TTS nÃ£o fala
+  - Verifique volume/Ã¡udio; em iOS configure AVAudioSession; ajuste `ttsRate/ttsPitch`
 
-—
-Made with ❤️ for Lucas.
+â€”
+Made with â¤ï¸ for Lucas.
+\n\nDocumentação: veja a pasta docs/ ou publique via GitHub Pages (Settings → Pages → Branch: main, Folder: /docs).\n

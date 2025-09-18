@@ -1,0 +1,26 @@
+title: Google Maps Native SDK
+description: Plugin Flutter/FlutterFlow para Google Maps nativo (Android/iOS) e Web, com mapas, markers, polylines, câmera, estilos, navegação leve e Routes API.
+remote_theme: just-the-docs/just-the-docs
+plugins:
+  - jekyll-remote-theme
+
+search_enabled: true
+logo: 
+aux_links:
+  GitHub Repo: https://github.com/Nagazaki-Software/google_maps_native_sdk
+  Pub.dev: https://pub.dev/packages/google_maps_native_sdk
+
+nav_external_links:
+  - title: Exemplo (app)
+    url: https://github.com/Nagazaki-Software/google_maps_native_sdk/tree/main/example
+    opens_in_new_tab: true
+
+color_scheme: nil
+heading_anchors: true
+
+just_the_docs:
+  collections:
+    docs:
+      name: Docs
+      nav_exclude: false
+      search_exclude: false

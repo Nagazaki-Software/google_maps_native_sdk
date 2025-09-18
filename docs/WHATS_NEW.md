@@ -7,3 +7,7 @@ Notes
 
 - On Web, `setMarkerIconBytes` is currently a no-op. You can still set marker icons using URLs via `MarkerOptions.iconUrl`.
 - For high-frequency camera and polyline updates, prefer `animateCamera` with a duration and throttle `updatePolylinePoints` to ~10–20 Hz to avoid MethodChannel overhead.
+---
+title: What's New
+nav_order: 99
+---
