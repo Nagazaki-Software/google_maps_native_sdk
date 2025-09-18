@@ -16,10 +16,10 @@ flutter build web --release
 flutter clean
 ```
 
-Gerar referência de API (dartdoc) e hospedar em `docs/api/` (opcional):
+Gerar referência de API (dartdoc) local (opcional):
 ```
 dart pub global activate dartdoc
-dart doc -o docs/api
+dart doc -o build/api
 ```
-Depois faça push e a pasta ficará disponível em `https://<seu-usuario>.github.io/<repo>/api/`.
+Os arquivos são gerados em `build/api/` no seu ambiente local.
 

@@ -5,31 +5,45 @@ nav_order: 20
 
 FlutterFlow Helpers (Actions)
 
-Overview
-- This package exposes a simple static hub `GmnsNavHub` to simplify wiring in FlutterFlow custom actions.
-- You can create custom actions in FlutterFlow that call the methods below via a wrapper Dart file in your app.
+Resumo
+- `GmnsNavHub` facilita ações personalizadas no FlutterFlow (um único ponto para controlar mapa e navegação).
+- Crie ações que chamem os métodos do hub, via wrappers no seu app.
 
-Quick API
-- Set controller once (on map created):
-  GmnsNavHub.setController(controller);
-- Compute + draw routes (alternatives):
-  await GmnsNavHub.computeRoutesAndDraw(apiKey: 'KEY', origin: LatLng(...), destination: LatLng(...));
-- Choose active route:
-  await GmnsNavHub.chooseActiveRoute(0);
-- Start/Stop navigation:
-  await GmnsNavHub.startNavigation(apiKey: 'KEY', origin: LatLng(...), destination: LatLng(...));
-  await GmnsNavHub.stopNavigation();
-- Recenter/Overview during navigation:
-  await GmnsNavHub.recenter();
-  await GmnsNavHub.overview();
+API rápida
+```dart
+// No onMapCreated do seu widget de mapa
+GmnsNavHub.setController(controller);
 
-Binding in FlutterFlow
-1) Add this package as a custom package.
-2) In your page with the map widget, expose `onMapCreated` and store the controller instance to call:
-   GmnsNavHub.setController(controller);
-3) Create Custom Actions that call the methods above (wrap them in your app code if needed).
-4) Use the Events stream (ETA, instruction) by listening in your app code and exposing as state (e.g., using a `StreamProvider`) — or poll via callbacks.
+// Rotas (alternativas) e desenho
+await GmnsNavHub.computeRoutesAndDraw(
+  apiKey: 'KEY',
+  origin: const LatLng(-23.561, -46.656),
+  destination: const LatLng(-23.570, -46.650),
+);
 
-Notes
-- The hub stores a single controller/session reference. If your app uses multiple maps, extend the hub to manage multiple IDs.
-- For dynamic speed limit/lanes/incidents, integrate additional Google APIs and forward to your UI as needed.
+// Trocar rota ativa
+await GmnsNavHub.chooseActiveRoute(0);
+
+// Navegação (TBT)
+await GmnsNavHub.startNavigation(
+  apiKey: 'KEY',
+  origin: const LatLng(-23.561, -46.656),
+  destination: const LatLng(-23.570, -46.650),
+);
+await GmnsNavHub.stopNavigation();
+
+// Centralizar/Overview durante navegação
+await GmnsNavHub.recenter();
+await GmnsNavHub.overview();
+```
+
+Como ligar no FlutterFlow
+1) Adicione este pacote como “Custom Package”.
+2) Na tela com o mapa, exponha `onMapCreated` e chame `GmnsNavHub.setController(controller)`.
+3) Crie “Custom Actions” que chamem os métodos do hub (crie wrappers no app, se preferir).
+4) Para ETA/instruções, escute os streams no app e exponha como estado para a UI.
+
+Observações
+- O hub armazena uma única instância de controller/sessão. Para múltiplos mapas, estenda a classe gerenciando IDs.
+- Para limites de velocidade/faixas/incidentes dinâmicos, integre APIs do Google e repasse para sua UI.
+
