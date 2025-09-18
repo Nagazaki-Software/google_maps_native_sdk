@@ -139,7 +139,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     @Override public LatLng getPosition() { return position; }
     @Override public String getTitle() { return title; }
     @Override public String getSnippet() { return snippet; }
-    @Override public float getZIndex() { return zIndex; }
+    @Override public Float getZIndex() { return zIndex; }
   }
 
   // Custom cluster renderer to apply custom marker icons for single items
