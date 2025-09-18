@@ -1,16 +1,21 @@
-part of 'package:google_maps_native_sdk/google_maps_native_sdk.dart';
+﻿part of 'package:google_maps_native_sdk/google_maps_native_sdk.dart';
+
+typedef SpeedLimitProvider = Future<double?> Function(LatLng position);
 
 class NavigationOptions {
   final String apiKey;
   final LatLng origin;
   final LatLng destination;
+  final List<Waypoint> intermediates; // Routes v2 waypoints
   final String mode; // driving, walking, bicycling, transit
   final String language; // e.g. pt-BR
   final bool voiceGuidance;
   final double cameraZoom;
   final double cameraTilt;
   final bool followBearing; // rotate camera with heading
-  final double voiceAheadDistanceMeters;
+  final double voiceAheadDistanceMeters; // deprecated in favor de approachSpeakMeters
+  final List<double> approachSpeakMeters; // ex.: [400, 150, 30, 10]
+  final double arrivalThresholdMeters; // distÃ¢ncia para considerar chegada
   final double offRouteThresholdMeters;
   final Duration minTimeBetweenReroutes;
   // TTS tuning
@@ -19,12 +24,25 @@ class NavigationOptions {
   final String? ttsVoice;
   // Speed monitoring
   final bool speedAlertsEnabled;
-  final double? speedLimitKmh; // Optional static limit; dynamic integration TBD
+  final double? speedLimitKmh; // Limite estÃ¡tico opcional
+  final SpeedLimitProvider? speedLimitProvider; // Provedor dinÃ¢mico opcional
+
+  // Map matching e snapping
+  final bool snapToRoute;
+  final double mapMatchingToleranceMeters;
+
+  // Roteamento
+  final bool rerouteOnOffRoute;
+  final bool useRoutesV2; // usar Routes API v2 para navegaÃ§Ã£o (passos localizados)
+
+  // SimulaÃ§Ã£o (para testes/demos)
+  final double? simulationSpeedKmh; // quando definido, usa simulaÃ§Ã£o em vez de GPS
 
   const NavigationOptions({
     required this.apiKey,
     required this.origin,
     required this.destination,
+    this.intermediates = const [],
     this.mode = 'driving',
     this.language = 'pt-BR',
     this.voiceGuidance = true,
@@ -32,6 +50,8 @@ class NavigationOptions {
     this.cameraTilt = 45,
     this.followBearing = true,
     this.voiceAheadDistanceMeters = 60,
+    this.approachSpeakMeters = const [400, 150, 30, 10],
+    this.arrivalThresholdMeters = 25,
     this.offRouteThresholdMeters = 50,
     this.minTimeBetweenReroutes = const Duration(seconds: 12),
     this.ttsRate = 0.95,
@@ -39,6 +59,12 @@ class NavigationOptions {
     this.ttsVoice,
     this.speedAlertsEnabled = false,
     this.speedLimitKmh,
+    this.speedLimitProvider,
+    this.snapToRoute = true,
+    this.mapMatchingToleranceMeters = 30,
+    this.rerouteOnOffRoute = true,
+    this.useRoutesV2 = false,
+    this.simulationSpeedKmh,
   });
 }
 
@@ -133,14 +159,21 @@ class DirectionsService {
   }
 }
 
+class _NavShared {
+  bool closed = false;
+  bool paused = false;
+  Timer? simTimer;
+  double simSpeedKmh = 0.0;
+}
+
 class NavigationSession {
   final GoogleMapController controller;
   final NavigationOptions options;
   final DirectionsRoute route;
-  final StreamSubscription<Position> _sub;
+  final StreamSubscription<Position>? _sub;
   final FlutterTts? _tts;
   final String polylineId;
-  bool _closed = false;
+  final _NavShared _shared;
 
   NavigationSession._(
     this.controller,
@@ -149,6 +182,7 @@ class NavigationSession {
     this._sub,
     this._tts,
     this.polylineId,
+    this._shared,
     this._stateCtl,
     this._instCtl,
     this._progressCtl,
@@ -173,10 +207,33 @@ class NavigationSession {
 
   Future<void> overview() async => recenter();
 
+  bool get isPaused => _shared.paused;
+
+  Future<void> pause() async {
+    if (_shared.paused) return;
+    _shared.paused = true;
+    _sub?.pause();
+    _stateCtl.add(NavState.paused);
+  }
+
+  Future<void> resume() async {
+    if (!_shared.paused) return;
+    _shared.paused = false;
+    _sub?.resume();
+    _stateCtl.add(NavState.navigating);
+  }
+
+  bool get isSimulating => _shared.simTimer != null;
+  double get simulationSpeedKmh => _shared.simSpeedKmh;
+  Future<void> setSimulationSpeed(double kmh) async {
+    _shared.simSpeedKmh = kmh.clamp(1.0, 200.0);
+  }
+
   Future<void> stop({bool clearRoute = true}) async {
-    if (_closed) return;
-    _closed = true;
-    await _sub.cancel();
+    if (_shared.closed) return;
+    _shared.closed = true;
+    try { await _sub?.cancel(); } catch (_) {}
+    try { _shared.simTimer?.cancel(); } catch (_) {}
     if (options.voiceGuidance) {
       try { await _tts?.stop(); } catch (_) {}
     }
@@ -197,14 +254,8 @@ class MapNavigator {
     String polylineId = 'gmns_nav_route',
     Color polylineColor = const Color(0xFF1976D2),
   }) async {
-    // Fetch route
-    final route = await DirectionsService.fetchRoute(
-      apiKey: options.apiKey,
-      origin: options.origin,
-      destination: options.destination,
-      mode: options.mode,
-      language: options.language,
-    );
+    // Fetch route (Directions classic ou Routes v2)
+    final route = await _fetchNavigationRoute(options);
 
     // Draw polyline & fit bounds
     await controller.addPolyline(PolylineOptions(id: polylineId, points: route.points, color: polylineColor, width: 6));
@@ -233,7 +284,6 @@ class MapNavigator {
       // We don't request here to keep plugin passive; consumer app must request beforehand.
     }
 
-    int spokenStepIndex = -1;
     DateTime lastReroute = DateTime.fromMillisecondsSinceEpoch(0);
     final stateCtl = StreamController<NavState>.broadcast();
     final instCtl = StreamController<NavInstruction>.broadcast();
@@ -245,44 +295,54 @@ class MapNavigator {
     final cumul = _cumulativeDistances(route.points);
     final totalMeters = cumul.isNotEmpty ? cumul.last : 0.0;
 
-    final sub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 2),
-    ).listen((pos) async {
-      final user = LatLng(pos.latitude, pos.longitude);
-      final bearing = options.followBearing ? _normalizeBearing(pos.heading.isFinite ? pos.heading : _bearingFromVelocity(pos)) : null;
-      // Follow camera
-      await controller.animateCamera(user,
-          zoom: options.cameraZoom,
-          tilt: options.cameraTilt,
-          bearing: bearing?.toDouble());
+    // Estado compartilhado runtime
+    final shared = _NavShared();
 
-      // Speed monitor
-      final speedKmh = (pos.speed.isFinite ? pos.speed : 0.0) * 3.6;
+    // Fala por aproximaÃ§Ã£o em mÃºltiplos limiares
+    final Map<int, Set<double>> spokenByStep = {};
+
+    // Auxiliares de limite de velocidade dinÃ¢mico
+    double? dynSpeedLimit;
+    DateTime lastSpeedFetch = DateTime.fromMillisecondsSinceEpoch(0);
+
+    // FunÃ§Ã£o para processar uma atualizaÃ§Ã£o de posiÃ§Ã£o (GPS ou simulaÃ§Ã£o)
+    Future<void> onPosition(LatLng user, {double speedKmh = 0.0, double? course}) async {
+      if (shared.closed || shared.paused) return;
+
+      // Snapping e bearing
+      LatLng camTarget = user;
+      double? camBearing = course;
+      if (options.snapToRoute && route.points.length >= 2) {
+        final np = _nearestPointOnPolyline(user, route.points);
+        camTarget = np.point;
+        final a = route.points[np.segIndex];
+        final b = route.points[np.segIndex + 1];
+        camBearing = _normalizeBearing(_bearingDegrees(a, b));
+      }
+
+      await controller.animateCamera(
+        camTarget,
+        zoom: options.cameraZoom,
+        tilt: options.cameraTilt,
+        bearing: options.followBearing ? camBearing : null,
+      );
+
+      // Velocidade/alertas (opcional provider dinÃ¢mico)
       if (options.speedAlertsEnabled) {
-        final limit = options.speedLimitKmh;
+        final now = DateTime.now();
+        if (options.speedLimitProvider != null && now.difference(lastSpeedFetch) > const Duration(seconds: 20)) {
+          lastSpeedFetch = now;
+          try { dynSpeedLimit = await options.speedLimitProvider!(user); } catch (_) {}
+        }
+        final limit = dynSpeedLimit ?? options.speedLimitKmh;
         if (limit != null && speedKmh > limit + 2.0) {
           speedCtl.add(SpeedAlert(speedKmh: speedKmh, speedLimitKmh: limit, overLimit: true));
         }
       }
 
-      // Voice guidance on step proximity
-      if (options.voiceGuidance && route.steps.isNotEmpty && tts != null) {
-        final idx = _closestUpcomingStepIndex(user, route.steps);
-        if (idx != null) {
-          final step = route.steps[idx];
-          final d = _distanceMeters(user, step.startLocation);
-          if (d <= options.voiceAheadDistanceMeters && idx > spokenStepIndex) {
-            spokenStepIndex = idx;
-            final text = _instructionVoiceText(step, options.language);
-            try { await tts.speak(text); } catch (_) {}
-            instCtl.add(NavInstruction(stepIndex: idx, text: step.instructionText, maneuver: step.maneuver, distanceMeters: d.round()));
-          }
-        }
-      }
-
-      // Progress estimation (distance remaining, ETA)
+      // Progresso/ETA
       if (totalMeters > 0) {
-        final traveled = _traveledAlongRoute(user, route.points, cumul);
+        final traveled = _traveledAlongRoute(camTarget, route.points, cumul);
         final remaining = (totalMeters - traveled).clamp(0.0, totalMeters);
         double? etaSeconds;
         if (route.durationSeconds != null && totalMeters > 1) {
@@ -294,41 +354,166 @@ class MapNavigator {
         progressCtl.add(NavProgress(distanceRemainingMeters: remaining, etaSeconds: etaSeconds));
       }
 
-      // Simple off-route detection and reroute throttle
-      final off = _distanceToPolylineMeters(user, route.points);
-      if (off > options.offRouteThresholdMeters) {
+      // Chegada
+      final dDest = _distanceMeters(camTarget, options.destination);
+        if (dDest <= options.arrivalThresholdMeters) {
+          stateCtl.add(NavState.arrived);
+          if (options.voiceGuidance && tts != null) {
+            final txt = options.language.startsWith('pt') ? 'VocÃª chegou ao destino' : 'You have arrived at your destination';
+            try { await tts.speak(txt); } catch (_) {}
+          }
+          return;
+        }
+
+      // InstruÃ§Ãµes por passo (aproximaÃ§Ã£o em mÃºltiplos limiares)
+      if (options.voiceGuidance && route.steps.isNotEmpty && tts != null) {
+        // Passo mais prÃ³ximo adiante
+        int idx = _closestUpcomingStepIndex(camTarget, route.steps) ?? 0;
+        final step = route.steps[idx];
+        final d = _distanceMeters(camTarget, step.startLocation);
+        final spokenSet = spokenByStep.putIfAbsent(idx, () => <double>{});
+        for (final th in options.approachSpeakMeters) {
+          if (!spokenSet.contains(th) && d <= th) {
+            spokenSet.add(th);
+            final text = _instructionVoiceText(step, options.language);
+            try { await tts.speak(text); } catch (_) {}
+            instCtl.add(NavInstruction(stepIndex: idx, text: step.instructionText, maneuver: step.maneuver, distanceMeters: d.round()));
+            break;
+          }
+        }
+      }
+
+      // Off-route e Reroute
+      final off = _distanceToPolylineMeters(camTarget, route.points);
+      if (options.rerouteOnOffRoute && off > options.offRouteThresholdMeters) {
         stateCtl.add(NavState.offRoute);
         final now = DateTime.now();
         if (now.difference(lastReroute) >= options.minTimeBetweenReroutes) {
           lastReroute = now;
           stateCtl.add(NavState.rerouting);
           try {
-            final newRoute = await DirectionsService.fetchRoute(
-              apiKey: options.apiKey,
-              origin: user,
-              destination: options.destination,
-              mode: options.mode,
-              language: options.language,
-            );
-            // Replace polyline
-            await controller.addPolyline(PolylineOptions(id: polylineId, points: newRoute.points, color: polylineColor, width: 6));
-            // Update bounds softly (do not yank camera too far)
-            // Keep following user; bounds not forced on reroute to avoid jitter.
-            // Update route reference for progress
-            route.points
-              ..clear()
-              ..addAll(newRoute.points);
-            // NOTE: For a fuller model we'd rebuild cumulatives; keeping simple for now.
+            if (options.useRoutesV2) {
+              final res = await RoutesApi.computeRoutes(
+                apiKey: options.apiKey,
+                origin: Waypoint(location: camTarget),
+                destination: Waypoint(location: options.destination),
+                intermediates: options.intermediates,
+                languageCode: options.language,
+                alternatives: false,
+              );
+              if (res.routes.isNotEmpty) {
+                final r = res.routes.first;
+                final newSteps = <DirectionStep>[];
+                for (final leg in r.legs) {
+                  for (final st in leg.steps) {
+                    LatLng? s;
+                    LatLng? e;
+                    if (st.points.isNotEmpty) { s = st.points.first; e = st.points.last; }
+                    newSteps.add(DirectionStep(
+                      startLocation: s ?? camTarget,
+                      endLocation: e ?? options.destination,
+                      distanceMeters: st.distanceMeters ?? 0,
+                      instructionHtml: st.instruction ?? '',
+                      maneuver: st.maneuver,
+                    ));
+                  }
+                }
+                await controller.addPolyline(PolylineOptions(id: polylineId, points: r.points, color: polylineColor, width: 6));
+                route.points..clear()..addAll(r.points);
+                route.steps..clear()..addAll(newSteps);
+                cumul..clear()..addAll(_cumulativeDistances(route.points));
+                spokenByStep.clear();
+              }
+            } else {
+              final newRoute = await DirectionsService.fetchRoute(
+                apiKey: options.apiKey,
+                origin: camTarget,
+                destination: options.destination,
+                mode: options.mode,
+                language: options.language,
+              );
+              await controller.addPolyline(PolylineOptions(id: polylineId, points: newRoute.points, color: polylineColor, width: 6));
+              route.points..clear()..addAll(newRoute.points);
+              cumul..clear()..addAll(_cumulativeDistances(route.points));
+              spokenByStep.clear();
+            }
             stateCtl.add(NavState.navigating);
           } catch (_) {
-            // ignore reroute failures silently
             stateCtl.add(NavState.navigating);
           }
         }
       }
-    });
+    }
 
-    return NavigationSession._(controller, options, route, sub, tts, polylineId, stateCtl, instCtl, progressCtl, speedCtl);
+    StreamSubscription<Position>? sub;
+    if (options.simulationSpeedKmh != null && totalMeters > 0) {
+      // SimulaÃ§Ã£o baseada no polyline
+      double progress = 0.0; // metros ao longo da rota
+      shared.simSpeedKmh = options.simulationSpeedKmh!.clamp(1.0, 200.0);
+      shared.simTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+        if (shared.paused || shared.closed) return;
+        final spd = shared.simSpeedKmh.clamp(1.0, 200.0);
+        progress = (progress + spd / 3.6).clamp(0.0, totalMeters);
+        final interp = _interpolateAlongRoute(route.points, cumul, progress);
+        await onPosition(interp.position, speedKmh: spd, course: interp.bearing);
+      });
+    } else {
+      sub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 2),
+      ).listen((pos) async {
+        final user = LatLng(pos.latitude, pos.longitude);
+        final speedKmh = (pos.speed.isFinite ? pos.speed : 0.0) * 3.6;
+        final course = pos.heading.isFinite ? pos.heading : _bearingFromVelocity(pos);
+        await onPosition(user, speedKmh: speedKmh, course: course);
+      });
+    }
+
+    return NavigationSession._(controller, options, route, sub, tts, polylineId, shared, stateCtl, instCtl, progressCtl, speedCtl);
+  }
+
+  static Future<DirectionsRoute> _fetchNavigationRoute(NavigationOptions options) async {
+    if (options.useRoutesV2) {
+      final res = await RoutesApi.computeRoutes(
+        apiKey: options.apiKey,
+        origin: Waypoint(location: options.origin),
+        destination: Waypoint(location: options.destination),
+        intermediates: options.intermediates,
+        languageCode: options.language,
+        alternatives: false,
+      );
+      if (res.routes.isEmpty) {
+        throw StateError('No route from Routes API v2');
+      }
+      final r = res.routes.first;
+      final steps = <DirectionStep>[];
+      for (final leg in r.legs) {
+        for (final st in leg.steps) {
+          LatLng? start;
+          LatLng? end;
+          if (st.points.isNotEmpty) {
+            start = st.points.first;
+            end = st.points.last;
+          }
+          steps.add(DirectionStep(
+            startLocation: start ?? options.origin,
+            endLocation: end ?? options.destination,
+            distanceMeters: st.distanceMeters ?? 0,
+            instructionHtml: st.instruction ?? '',
+            maneuver: st.maneuver,
+          ));
+        }
+      }
+      final ne = r.northeast ?? _polyMax(r.points);
+      final sw = r.southwest ?? _polyMin(r.points);
+      return DirectionsRoute(points: r.points, northeast: ne, southwest: sw, steps: steps, durationSeconds: r.durationSeconds);
+    }
+    return await DirectionsService.fetchRoute(
+      apiKey: options.apiKey,
+      origin: options.origin,
+      destination: options.destination,
+      mode: options.mode,
+      language: options.language,
+    );
   }
 }
 
@@ -427,7 +612,7 @@ double _bearingFromVelocity(Position pos) {
 
 // ----- Navigation events & helpers -----
 
-enum NavState { navigating, offRoute, rerouting }
+enum NavState { navigating, offRoute, rerouting, paused, arrived }
 
 class NavInstruction {
   final int stepIndex;
@@ -501,4 +686,91 @@ double _projectPointFraction(LatLng p, LatLng v, LatLng w) {
     t = 1;
   }
   return t;
+}
+
+// ---------- advanced helpers ----------
+
+class _NearestPoint {
+  final LatLng point;
+  final int segIndex; // index of segment start (uses segIndex and segIndex+1)
+  final double t; // 0..1 within the segment
+  const _NearestPoint(this.point, this.segIndex, this.t);
+}
+
+_NearestPoint _nearestPointOnPolyline(LatLng p, List<LatLng> line) {
+  double bestDist = double.infinity;
+  int bestIdx = 0;
+  double bestT = 0.0;
+  LatLng bestPoint = line.first;
+  for (int i = 0; i < line.length - 1; i++) {
+    final a = line[i];
+    final b = line[i + 1];
+    final t = _projectPointFraction(p, a, b);
+    final lat = a.latitude + (b.latitude - a.latitude) * t;
+    final lng = a.longitude + (b.longitude - a.longitude) * t;
+    final q = LatLng(lat, lng);
+    final d = _distanceMeters(p, q);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i;
+      bestT = t;
+      bestPoint = q;
+    }
+  }
+  return _NearestPoint(bestPoint, bestIdx, bestT);
+}
+
+double _bearingDegrees(LatLng a, LatLng b) {
+  final lat1 = _deg2rad(a.latitude);
+  final lat2 = _deg2rad(b.latitude);
+  final dLon = _deg2rad(b.longitude - a.longitude);
+  final y = math.sin(dLon) * math.cos(lat2);
+  final x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+  var brng = math.atan2(y, x) * 180.0 / math.pi;
+  if (brng < 0) brng += 360.0;
+  return brng;
+}
+
+class _InterpResult { final LatLng position; final double bearing; _InterpResult(this.position, this.bearing); }
+
+_InterpResult _interpolateAlongRoute(List<LatLng> pts, List<double> cumul, double progressMeters) {
+  if (pts.length < 2) return _InterpResult(pts.first, 0);
+  progressMeters = progressMeters.clamp(0.0, cumul.last);
+  int idx = 0;
+  while (idx < cumul.length - 1 && cumul[idx + 1] < progressMeters) {
+    idx++;
+  }
+  final base = cumul[idx];
+  final segLen = (cumul[idx + 1] - base).clamp(0.001, double.infinity);
+  final t = ((progressMeters - base) / segLen).clamp(0.0, 1.0);
+  final a = pts[idx];
+  final b = pts[idx + 1];
+  final lat = a.latitude + (b.latitude - a.latitude) * t;
+  final lng = a.longitude + (b.longitude - a.longitude) * t;
+  final br = _bearingDegrees(a, b);
+  return _InterpResult(LatLng(lat, lng), br);
+}
+
+// (Step mapping removido por enquanto; pode ser reintroduzido se necessÃ¡rio.)
+
+LatLng _polyMax(List<LatLng> pts) {
+  if (pts.isEmpty) return const LatLng(0, 0);
+  double maxLat = pts.first.latitude;
+  double maxLng = pts.first.longitude;
+  for (final p in pts) {
+    if (p.latitude > maxLat) maxLat = p.latitude;
+    if (p.longitude > maxLng) maxLng = p.longitude;
+  }
+  return LatLng(maxLat, maxLng);
+}
+
+LatLng _polyMin(List<LatLng> pts) {
+  if (pts.isEmpty) return const LatLng(0, 0);
+  double minLat = pts.first.latitude;
+  double minLng = pts.first.longitude;
+  for (final p in pts) {
+    if (p.latitude < minLat) minLat = p.latitude;
+    if (p.longitude < minLng) minLng = p.longitude;
+  }
+  return LatLng(minLat, minLng);
 }

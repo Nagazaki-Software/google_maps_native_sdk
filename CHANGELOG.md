@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.7.0
+
+EN
+- Navigation SDK (Turn‑by‑Turn): voice guidance with multi‑threshold announcements, snapping to route, arrival detection, pause/resume, simulation, and rerouting.
+  - New NavigationOptions: `approachSpeakMeters`, `arrivalThresholdMeters`, `snapToRoute`, `mapMatchingToleranceMeters`, `rerouteOnOffRoute`, `simulationSpeedKmh`, `speedAlertsEnabled`, `speedLimitKmh`, `speedLimitProvider`, `useRoutesV2`, `intermediates`.
+  - New session controls: `pause()`, `resume()`, `isSimulating`, `setSimulationSpeed(kmh)`.
+  - New states in `onState`: `navigating`, `offRoute`, `rerouting`, `paused`, `arrived`.
+  - Uses classic Directions by default; optionally uses Routes API v2 steps when `useRoutesV2: true`.
+- Routes API v2 client: extended FieldMask and types.
+  - RouteData now includes `northeast/southwest` viewport, `routeLabels`, `staticDurationSeconds`, and `legs`.
+  - New `RouteLegData` and `RouteStepData` with per‑step polyline, distance, instruction and maneuver.
+- UI: added `NavInstructionBanner` widget to display maneuver icon, instruction text and remaining distance.
+- FlutterFlow helpers: `startNavigation` now accepts `useRoutesV2` and `intermediates`.
+- Docs: updated Navigation (options, states, simulation), Routes API v2 (viewport/steps), and added UI banner guide.
+- Misc: analyzer fixes, color API deprecation addressed, helper bounds functions.
+
+PT‑BR
+- SDK de Navegação (Turn‑by‑Turn): voz com múltiplos limiares, snapping na rota, detecção de chegada, pausar/retomar, simulação e reroteamento.
+  - Novos NavigationOptions: `approachSpeakMeters`, `arrivalThresholdMeters`, `snapToRoute`, `mapMatchingToleranceMeters`, `rerouteOnOffRoute`, `simulationSpeedKmh`, `speedAlertsEnabled`, `speedLimitKmh`, `speedLimitProvider`, `useRoutesV2`, `intermediates`.
+  - Novos controles da sessão: `pause()`, `resume()`, `isSimulating`, `setSimulationSpeed(kmh)`.
+  - Novos estados em `onState`: `navigating`, `offRoute`, `rerouting`, `paused`, `arrived`.
+  - Padrão usa Directions; opcionalmente usa Steps do Routes API v2 com `useRoutesV2: true`.
+- Cliente Routes API v2: FieldMask ampliada e novos tipos.
+  - RouteData agora inclui viewport (`northeast/southwest`), `routeLabels`, `staticDurationSeconds` e `legs`.
+  - Novos `RouteLegData` e `RouteStepData` com polyline do passo, distância, instrução e maneuver.
+- UI: novo widget `NavInstructionBanner` para mostrar manobra, texto e distância.
+- FlutterFlow helpers: `startNavigation` aceita `useRoutesV2` e `intermediates`.
+- Docs: Navegação (opções, estados, simulação), Routes API v2 (viewport/steps) e guia do banner de instruções.
+- Miscelânea: correções de analyzer, ajuste de API de cor, funções auxiliares de bounds.
+
+## 0.6.8
+
+EN
+- Documentation overhaul: added a docs site structure (Just the Docs theme) with guides for installation, widget, controller, web, markers, polylines, camera, style, events, FAQ, troubleshooting and scripts.
+- README reworked for clarity (Portuguese) and links to the docs.
+- No breaking API changes.
+
+PT‑BR
+- Reformulação de documentação: site em `docs/` com guias de instalação, widget, controller, web, markers, polylines, câmera, estilo, eventos, FAQ, troubleshooting e scripts.
+- README reescrito com foco e links para as docs.
+- Sem mudanças de API que quebrem compatibilidade.
+
 ## 0.6.5
 
 EN

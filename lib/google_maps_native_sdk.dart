@@ -11,6 +11,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform, kIsWeb;
 import 'package:http/http.dart' as http;
@@ -29,6 +30,7 @@ part 'src/navigation.dart';
 part 'src/static_map.dart';
 part 'src/routes.dart';
 part 'src/flutterflow_helpers.dart';
+part 'src/nav_banner.dart';
 
 /// Convenience wrapper exposing package/platform version from the host side.
 class GoogleMapsNativeSdk {

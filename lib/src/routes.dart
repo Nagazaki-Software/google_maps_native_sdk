@@ -46,10 +46,25 @@ class RoutesApi {
       },
     };
 
-    final mask = fieldMask ??
-        'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,'
-        'routes.travelAdvisory.tollInfo,routes.legs.steps.navigationInstruction,'
-        'routes.legs.steps.localizedValues,routes.localizedValues';
+    final mask = fieldMask ?? [
+      // Route level
+      'routes.distanceMeters',
+      'routes.duration',
+      'routes.staticDuration',
+      'routes.polyline.encodedPolyline',
+      'routes.travelAdvisory.tollInfo',
+      'routes.viewport',
+      'routes.routeLabels',
+      // Legs & Steps
+      'routes.legs.distanceMeters',
+      'routes.legs.duration',
+      'routes.legs.steps.distanceMeters',
+      'routes.legs.steps.polyline.encodedPolyline',
+      'routes.legs.steps.navigationInstruction',
+      // Optional localized texts
+      'routes.legs.steps.localizedValues',
+      'routes.localizedValues',
+    ].join(',');
 
     final uri = Uri.parse('$_baseRoutes?key=$apiKey');
     final res = await http.post(
@@ -186,29 +201,130 @@ class RoutesResponse {
   }
 }
 
-/// Minimal route data with polyline, distance, duration and toll info.
+/// Route data with polyline, distance, duration, toll info and details.
 class RouteData {
   final int index;
   final List<LatLng> points;
   final int? distanceMeters;
   final int? durationSeconds;
+  final int? staticDurationSeconds;
   final TollInfo? tollInfo;
+  final LatLng? northeast; // from viewport.high
+  final LatLng? southwest; // from viewport.low
+  final List<RouteLegData> legs;
+  final List<String> routeLabels;
 
-  const RouteData({required this.index, required this.points, this.distanceMeters, this.durationSeconds, this.tollInfo});
+  const RouteData({
+    required this.index,
+    required this.points,
+    this.distanceMeters,
+    this.durationSeconds,
+    this.staticDurationSeconds,
+    this.tollInfo,
+    this.northeast,
+    this.southwest,
+    this.legs = const [],
+    this.routeLabels = const [],
+  });
 
   factory RouteData.fromJson(Map<String, dynamic> json, {required int index}) {
     final poly = ((json['polyline'] as Map<String, dynamic>?)?['encodedPolyline'] as String?) ?? '';
     final dist = (json['distanceMeters'] as num?)?.toInt();
     final durStr = json['duration'] as String?; // e.g. '123s'
     final dur = durStr == null ? null : int.tryParse(durStr.replaceAll('s', ''));
+    final sDurStr = json['staticDuration'] as String?;
+    final sDur = sDurStr == null ? null : int.tryParse(sDurStr.replaceAll('s', ''));
     final advisory = json['travelAdvisory'] as Map<String, dynamic>?;
     final tollInfo = advisory == null ? null : TollInfo.fromJson(advisory['tollInfo'] as Map<String, dynamic>?);
+    // viewport
+    LatLng? ne;
+    LatLng? sw;
+    final viewport = json['viewport'] as Map<String, dynamic>?;
+    if (viewport != null) {
+      final high = viewport['high'] as Map<String, dynamic>?;
+      final low = viewport['low'] as Map<String, dynamic>?;
+      if (high != null) {
+        final hl = high['latitude'] as num?;
+        final hg = high['longitude'] as num?;
+        if (hl != null && hg != null) ne = LatLng(hl.toDouble(), hg.toDouble());
+      }
+      if (low != null) {
+        final ll = low['latitude'] as num?;
+        final lg = low['longitude'] as num?;
+        if (ll != null && lg != null) sw = LatLng(ll.toDouble(), lg.toDouble());
+      }
+    }
+    // labels
+    final labels = <String>[];
+    final rawLabels = json['routeLabels'] as List<dynamic>?;
+    if (rawLabels != null) {
+      for (final l in rawLabels) {
+        final s = l?.toString();
+        if (s != null) labels.add(s);
+      }
+    }
+    // legs & steps
+    final legsJson = json['legs'] as List<dynamic>?;
+    final legs = <RouteLegData>[];
+    if (legsJson != null) {
+      for (final li in legsJson) {
+        final m = li as Map<String, dynamic>;
+        legs.add(RouteLegData.fromJson(m));
+      }
+    }
     return RouteData(
       index: index,
       points: poly.isEmpty ? const [] : PolylineCodec.decode(poly),
       distanceMeters: dist,
       durationSeconds: dur,
+      staticDurationSeconds: sDur,
       tollInfo: tollInfo,
+      northeast: ne,
+      southwest: sw,
+      legs: legs,
+      routeLabels: labels,
+    );
+  }
+}
+
+class RouteLegData {
+  final int? distanceMeters;
+  final int? durationSeconds;
+  final List<RouteStepData> steps;
+  const RouteLegData({this.distanceMeters, this.durationSeconds, this.steps = const []});
+
+  factory RouteLegData.fromJson(Map<String, dynamic> json) {
+    final dist = (json['distanceMeters'] as num?)?.toInt();
+    final durStr = json['duration'] as String?;
+    final dur = durStr == null ? null : int.tryParse(durStr.replaceAll('s', ''));
+    final stepsJson = json['steps'] as List<dynamic>?;
+    final steps = <RouteStepData>[];
+    if (stepsJson != null) {
+      for (final si in stepsJson) {
+        steps.add(RouteStepData.fromJson(si as Map<String, dynamic>));
+      }
+    }
+    return RouteLegData(distanceMeters: dist, durationSeconds: dur, steps: steps);
+  }
+}
+
+class RouteStepData {
+  final int? distanceMeters;
+  final List<LatLng> points;
+  final String? instruction;
+  final String? maneuver;
+  const RouteStepData({this.distanceMeters, this.points = const [], this.instruction, this.maneuver});
+
+  factory RouteStepData.fromJson(Map<String, dynamic> json) {
+    final dist = (json['distanceMeters'] as num?)?.toInt();
+    final poly = ((json['polyline'] as Map<String, dynamic>?)?['encodedPolyline'] as String?) ?? '';
+    String? instruction = (json['navigationInstruction'] as Map<String, dynamic>?)?['instructions'] as String?;
+    String? maneuver = (json['navigationInstruction'] as Map<String, dynamic>?)?['maneuver'] as String?;
+    return RouteStepData(
+      distanceMeters: dist,
+      points: poly.isEmpty ? const [] : PolylineCodec.decode(poly),
+      instruction: instruction,
+      maneuver: maneuver,
     );
   }
 }
@@ -263,4 +379,3 @@ class RouteMatrixElement {
 extension _Let<T> on T? {
   R? let<R>(R? Function(T v) f) => this == null ? null : f(this as T);
 }
-

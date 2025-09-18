@@ -127,5 +127,13 @@ Exemplos
 - Android Auto (referência): `example/android-auto-sample/README.md`
 
 Documentação
-- Veja a pasta `docs/` para guias detalhados: Widget, Controller, Markers, Polylines, Câmera, Estilo, Web, Routes API, Navegação, FAQ e Troubleshooting.
-
+- Veja a pasta `docs/` para guias detalhados:
+  - `docs/index.md` — visão geral
+  - `docs/instalacao.md` — instalação Android/iOS/Web
+  - `docs/widget.md` — GoogleMapView
+  - `docs/controller.md` — controlador (câmera, markers, polylines, estilo, overlays)
+  - `docs/markers.md`, `docs/polylines.md`, `docs/camera.md`, `docs/estilo.md`
+  - `docs/web.md` — Flutter Web
+  - `docs/routes_api.md` — Routes API v2 (alternativas, viewport, steps)
+  - `docs/navegacao.md` — navegação TBT (Routes v2 opcional, simulação, estados)
+  - `docs/faq.md`, `docs/troubleshooting.md`

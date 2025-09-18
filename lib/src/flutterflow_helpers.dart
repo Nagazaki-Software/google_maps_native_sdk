@@ -93,6 +93,8 @@ class GmnsNavHub {
     bool voiceGuidance = true,
     double cameraZoom = 17,
     double cameraTilt = 45,
+    bool useRoutesV2 = false,
+    List<Waypoint> intermediates = const [],
   }) async {
     final c = _controller;
     if (c == null) return false;
@@ -106,6 +108,8 @@ class GmnsNavHub {
         voiceGuidance: voiceGuidance,
         cameraZoom: cameraZoom,
         cameraTilt: cameraTilt,
+        useRoutesV2: useRoutesV2,
+        intermediates: intermediates,
       ),
     );
     return true;
@@ -129,4 +133,3 @@ class GmnsNavHub {
     await s?.overview();
   }
 }
-

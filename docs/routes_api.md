@@ -5,13 +5,15 @@ nav_order: 6
 
 # Routes API v2
 
-Cliente leve para Google Routes API (Directions v2) e Route Matrix.
+Cliente para Google Routes API (Directions v2) e Route Matrix, agora com mais detalhes: viewport, legs/steps com instruções, labels e duração estática.
 
 Recursos:
 - Rotas alternativas, polyline em alta qualidade ou overview
 - Modificadores (evitar pedágios/rodovias/balsas), passes de pedágio
 - Waypoints avançados (via/stopover, sideOfRoad, placeId)
 - Idioma/unidades e FieldMask configurável
+- Viewport (bounds), labels da rota, duração estática
+- Legs e Steps com polyline, distância, instrução e maneuver
 - Matriz de ETAs em lote
 
 ## Rotas e desenho no mapa
@@ -30,6 +32,22 @@ for (final r in res.routes) {
     id: 'r${r.index}', points: r.points, color: const Color(0xFF1976D2), width: 6,
   ));
 }
+
+// Enquadrar usando viewport da rota (quando presente)
+final active = res.routes.first;
+if (active.northeast != null && active.southwest != null) {
+  await controller.animateToBounds(active.northeast!, active.southwest!, padding: 60);
+}
+
+// Labels da rota
+print('labels: ${active.routeLabels}');
+
+// Steps com instruções
+for (final leg in active.legs) {
+  for (final step in leg.steps) {
+    print('step: ${step.instruction} | maneuver=${step.maneuver} | dist=${step.distanceMeters}m');
+  }
+}
 ```
 
 ## Matriz de ETAs
@@ -46,5 +64,4 @@ for (final e in elements) {
 }
 ```
 
-Tipos principais: `Waypoint`, `RouteModifiers`, `RoutesResponse -> RouteData (points/distance/duration/tollInfo)`.
-
+Tipos principais: `Waypoint`, `RouteModifiers`, `RoutesResponse -> RouteData (points/distance/duration/staticDuration/tollInfo/viewport/labels/legs[steps])`.
