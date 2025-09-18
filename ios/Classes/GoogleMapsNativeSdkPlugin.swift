@@ -8,4 +8,3 @@ public class GoogleMapsNativeSdkPlugin: NSObject, FlutterPlugin {
     registrar.register(factory, withId: "google_maps_native_sdk/map_view")
   }
 }
-

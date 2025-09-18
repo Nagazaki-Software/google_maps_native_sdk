@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_maps_native_sdk/google_maps_native_sdk.dart';
+import 'routes_tbt_demo.dart';
 
 void main() {
   runApp(const MyApp());
@@ -10,9 +11,37 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      home: DemoPage(),
+    return MaterialApp(
+      home: const _Home(),
+      routes: {
+        '/basic': (context) => const DemoPage(),
+        '/routesTbt': (context) => const RoutesTbtDemoPage(),
+      },
       debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+class _Home extends StatelessWidget {
+  const _Home();
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Google Maps Native SDK - Samples')),
+      body: ListView(
+        children: [
+          ListTile(
+            title: const Text('Basic Map / Markers / Polylines'),
+            subtitle: const Text('Markers, polylines, camera, style, events'),
+            onTap: () => Navigator.of(context).pushNamed('/basic'),
+          ),
+          ListTile(
+            title: const Text('Routes + TBT Demo'),
+            subtitle: const Text('Routes API + turn-by-turn + event streams'),
+            onTap: () => Navigator.of(context).pushNamed('/routesTbt'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -31,7 +60,7 @@ class _DemoPageState extends State<DemoPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Google Maps Native SDK - Taxi Demo')),
+      appBar: AppBar(title: const Text('Basic Map Demo')),
       body: Stack(
         children: [
           GoogleMapView(

@@ -1,75 +1,137 @@
-**Google Maps Native SDK (Flutter/FlutterFlow)**
+🚀 Google Maps Native SDK (Flutter/FlutterFlow)
 
-- Native Google Maps plugin (Android Java / iOS Swift) for Flutter, built for mobility apps (e.g., taxi): markers, polylines, events, snapshot and icon caching. Bilingual docs (English/Português) below.
+- Nativo Android (Java) e iOS (Swift) + Flutter, com foco em mobilidade (ex.: táxi): markers, polylines, câmera, estilos, cache de ícones, eventos e navegação leve com voz. Bilingue (EN/PT-BR) abaixo.
 
-**Features**
-- Native PlatformView (`AndroidView` / `UiKitView`).
-- Markers with icon by URL (memory + disk cache), anchor, rotation and z-index.
-- Polylines (points list or encoded polyline via `addPolylineFromEncoded`).
-- Camera: move/animate, fit bounds with padding.
-- Map styling: JSON style or single-color tint via `setMapColor(Color, {dark: false})`.
-- Extras: traffic, buildings, map padding, snapshot.
-- Events: marker tap (`onMarkerTap` stream).
+**Highlights**
+- 🗺️ PlatformView nativo (AndroidView / UiKitView)
+- 📍 Markers com ícone por URL (cache memória+disco), âncora, rotação e z-index
+- ➿ Polylines (lista de pontos ou polyline codificado) com update in‑place
+- 🎥 Câmera: move/animate, fit bounds com padding
+- 🎨 Estilo: JSON ou tint por cor (`setMapColor`)
+- 🚦 Extras: tráfego, prédios, padding, snapshot
+- 🧭 Eventos: `onMarkerTap`, `onMapLoaded`
+- 🌐 Web: mapa interativo com Google Maps JS (carregamento dinâmico)
+- 🧠 Routes API v2 + Matriz de ETAs e TBT (voz)
 
-**Install**
-- Add dependency in your app `pubspec.yaml` (path/git or Pub when published).
-- Android: add your Google Maps API Key in the app `AndroidManifest.xml`:
-  - `<meta-data android:name="com.google.android.geo.API_KEY" android:value="YOUR_API_KEY"/>`
-- iOS: provide the API key in `AppDelegate` or Info.plist:
-  - `GMSServices.provideAPIKey("YOUR_API_KEY")` or `GMSApiKey` in Info.plist.
+**Instalação Rápida**
+- App Flutter
+  - `flutter pub add google_maps_native_sdk`
+  - Android (`AndroidManifest.xml`):
+    - `<meta-data android:name="com.google.android.geo.API_KEY" android:value="YOUR_API_KEY"/>`
+  - iOS (AppDelegate ou Info.plist):
+    - `GMSServices.provideAPIKey("YOUR_API_KEY")` ou `GMSApiKey` no Info.plist
+  - Web
+  - `flutter config --enable-web`
+  - Use `GoogleMapView(webApiKey: 'YOUR_WEB_MAPS_JS_API_KEY', ...)` OU adicione em `web/index.html`:
+    - `<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_WEB_MAPS_JS_API_KEY&libraries=geometry&v=weekly"></script>`
 
-**Quick Start** (see `example/lib/main.dart`)
-- Widget: `GoogleMapView(initialCameraPosition: CameraPosition(target: LatLng(-23.56,-46.65), zoom: 13), onMapCreated: ...)`.
-- Controller: `addMarker(...)`, `addPolyline(...)`, `moveCamera(...)`, `animateToBounds(...)`, `setMapStyle(...)`, `setMapColor(...)`, `takeSnapshot()`.
+**Uso Básico**
+```dart
+GoogleMapController? controller;
+GoogleMapView(
+  initialCameraPosition: CameraPosition(target: LatLng(-23.56, -46.65), zoom: 13),
+  trafficEnabled: true,
+  onMapCreated: (c) async {
+    controller = c;
+    await c.onMapLoaded; // ✅ tiles & style prontos
+    await c.addMarker(MarkerOptions(id: 'a', position: LatLng(-23.56, -46.65), title: 'Hello'));
+  },
+);
+```
 
-**FlutterFlow**
-- Import as Custom Package and use `GoogleMapView`. Use `onMapCreated` to wire controller calls via custom actions.
+**Routes API (v2)**
+- `RoutesApi.computeRoutes`: alternativas, route modifiers (evitar pedágio/rodovia/balsa), waypoints avançados (sideOfRoad/via), toll info, polyline quality, units/language, FieldMask
+- `RoutesApi.computeRouteMatrix`: ETAs em lote
+```dart
+final res = await RoutesApi.computeRoutes(
+  apiKey: 'YOUR_ROUTES_API_KEY',
+  origin: Waypoint(location: LatLng(-23.561, -46.656)),
+  destination: Waypoint(location: LatLng(-23.570, -46.650)),
+  intermediates: [Waypoint(location: LatLng(-23.566, -46.653), via: true, sideOfRoad: true)],
+  modifiers: const RouteModifiers(avoidHighways: true),
+  alternatives: true,
+  languageCode: 'pt-BR',
+);
+for (final r in res.routes) {
+  await controller!.addPolyline(PolylineOptions(id: 'r${r.index}', points: r.points, color: const Color(0xFF1976D2)));
+}
+```
 
-**Best practices (mobility/taxi)**
-- Enable `trafficEnabled` when useful to reduce visual noise.
-- Use `setPadding` to accommodate panels (e.g., bottom sheet).
-- Update driver position with `updateMarker` (optionally smooth in Dart first).
-- Use URL marker icons; built-in memory+disk cache reduces flicker and network.
+**Navegação (TBT + Voz + Follow)**
+```dart
+final session = await MapNavigator.start(
+  controller: controller!,
+  options: NavigationOptions(
+    apiKey: 'YOUR_DIRECTIONS_API_KEY',
+    origin: LatLng(-23.561, -46.656),
+    destination: LatLng(-23.570, -46.650),
+    language: 'pt-BR', voiceGuidance: true, ttsRate: 0.95,
+  ),
+);
+// Alimente sua UI:
+session.onProgress.listen((p) {/* ETA e distância restante */});
+session.onInstruction.listen((i) {/* texto + manobra */});
+session.onState.listen((s) {/* navigating/offRoute/rerouting */});
+```
 
-**Notes / Limitations**
-- Location permissions are app responsibility (e.g., `permission_handler`).
-- Clustering is not exposed yet (native Utils libs are included for future work).
-- Full offline tiles are not supported; use SDK cache + custom tiles if needed.
+**Flutter Web**
+```dart
+GoogleMapView(
+  webApiKey: 'YOUR_WEB_MAPS_JS_API_KEY', // ou script manual em web/index.html
+  initialCameraPosition: CameraPosition(
+    target: LatLng(-23.56, -46.65),
+    zoom: 13,
+    tilt: 30, // novo
+    bearing: 120, // novo
+  ),
+  onMapCreated: (c) async {
+    await c.onMapLoaded;
+    await c.addMarker(MarkerOptions(id: 'w', position: LatLng(-23.56, -46.65)));
+  },
+)
+```
+
+**FlutterFlow (Helpers)**
+- Em `onMapCreated`: `GmnsNavHub.setController(controller)`
+- Ações prontas:
+  - `await GmnsNavHub.computeRoutesAndDraw(...)`
+  - `await GmnsNavHub.chooseActiveRoute(index)`
+  - `await GmnsNavHub.startNavigation(...) / await GmnsNavHub.stopNavigation()`
+  - `await GmnsNavHub.recenter()` / `await GmnsNavHub.overview()`
+- Guia dedicado: `docs/FLUTTERFLOW_HELPERS.md`
+
+**Scripts Úteis (cheat sheet)**
+- 📦 `flutter pub get` — instalar deps
+- ▶️ `flutter run -d android` — rodar Android
+- 🍎 `flutter run -d ios` — rodar iOS
+- 🌐 `flutter config --enable-web` — habilitar Web
+- 🧪 `flutter run -d chrome` — rodar no Chrome
+- 🏗️ `flutter build web --release` — build Web
+- 🧹 `flutter clean` — limpar cache de build
+
+**Boas Práticas**
+- 🔋 Use `onMapLoaded` antes de adicionar overlays pesados
+- 🐍 “Snake” realtime: decime pontos + `updatePolylinePoints` (evite remover/adicionar a cada frame)
+- 🧱 `setPadding` para não encobrir UI (bottom sheet, etc.)
+- 🚘 `updateMarker` para mover o driver (suavize no Dart, se quiser)
+
+**Notas / Limitações**
+- 🔒 Permissões de localização são do app (ex.: `permission_handler`)
+- 🧩 Clustering ainda não exposto
+- 📡 Offline completo não suportado (use cache do SDK + tiles custom)
+- 🌐 Web: `setMyLocationEnabled` é no‑op; `takeSnapshot()` não disponível na JS API
+
+**Exemplos**
+- `example/lib/routes_tbt_demo.dart` — rotas alternativas, troca de rota, TBT + eventos
+- Android Auto (referência): `example/android-auto-sample/README.md`
+
+**FAQ**
+- Web: erro `platformViewRegistry`
+  - Atualize Flutter; este plugin usa o registro padrão de PlatformView no Web
+- Conflito com pacote `web` (meu app é só iOS/Android)
+  - O plugin não exige `package:web` no mobile. Rode `flutter clean && flutter pub get`
+- TTS não fala
+  - Verifique volume/áudio; em iOS configure AVAudioSession; ajuste `ttsRate/ttsPitch`
 
 —
-
-**Google Maps Native SDK (Flutter/FlutterFlow) — Português**
-
-- Plugin Flutter com views nativas (Android Java / iOS Swift) do Google Maps, focado em apps de mobilidade (ex.: táxi): markers, polylines, eventos, snapshot e cache de ícones (memória + disco). Documentação bilíngue.
-
-**Recursos**
-- PlatformView nativo (`AndroidView` / `UiKitView`).
-- Markers com ícone por URL (cache memória + disco), âncora, rotação e z-index.
-- Polylines (lista de pontos ou polyline codificado via `addPolylineFromEncoded`).
-- Câmera: mover/animar, bounds com padding.
-- Estilização: JSON ou cor única com `setMapColor(Color, {dark: false})`.
-- Extras: tráfego, prédios, padding do mapa, snapshot.
-- Eventos: toque em marker (`onMarkerTap`).
-
-**Instalação**
-- Adicione no `pubspec.yaml` do app (path/git ou Pub quando publicado).
-- Android: adicione a API Key no `AndroidManifest.xml` do app.
-- iOS: forneça a API Key no `AppDelegate` ou Info.plist.
-
-**Uso Rápido**
-- Widget e controller conforme exemplo em `example/lib/main.dart`.
-- Chaves principais: `addMarker`, `addPolyline`, `moveCamera`, `animateToBounds`, `setMapStyle`, `setMapColor`, `takeSnapshot`.
-
-**FlutterFlow**
-- Importe como Custom Package e use `GoogleMapView` com `onMapCreated` para acionar o controller por ações custom.
-
-**Boas práticas**
-- Habilite `trafficEnabled` quando útil.
-- Use `setPadding` para acomodar overlays.
-- Atualize posição do motorista com `updateMarker`.
-- Ícones por URL com cache (memória + disco) integrado.
-
-**Limitações**
-- Permissões de localização são do app.
-- Clustering: previsto para próxima versão.
-
+Made with ❤️ for Lucas.

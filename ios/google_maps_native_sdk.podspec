@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'google_maps_native_sdk'
-  s.version          = '0.1.0'
+  s.version          = '0.6.5'
   s.summary          = 'Native Google Maps plugin for Flutter'
   s.description      = <<-DESC
     Flutter plugin bridging Google Maps SDK with markers, polylines, caching and events.

@@ -2,6 +2,10 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'google_maps_native_sdk_method_channel.dart';
 
+/// Platform interface for `google_maps_native_sdk`.
+///
+/// Allows alternative implementations to provide the platform version and
+/// other platform-specific functionality. The default uses a method channel.
 abstract class GoogleMapsNativeSdkPlatform extends PlatformInterface {
   /// Constructs a GoogleMapsNativeSdkPlatform.
   GoogleMapsNativeSdkPlatform() : super(token: _token);
@@ -24,6 +28,7 @@ abstract class GoogleMapsNativeSdkPlatform extends PlatformInterface {
     _instance = instance;
   }
 
+  /// Returns the platform version string from the host platform.
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }

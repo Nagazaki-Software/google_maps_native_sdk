@@ -1,0 +1,182 @@
+          if (pos != null) marker.setPosition(new LatLng(toDouble(pos.get("lat")), toDouble(pos.get("lng"))));
+          if (m.get("rotation") != null) marker.setRotation(((Double) toDouble(m.get("rotation"))).floatValue());
+        }
+        result.success(null);
+        break;
+      }
+      case "markers#remove": {
+        String id = (String) call.arguments;
+        Marker marker = markers.remove(id);
+        if (marker != null) marker.remove();
+        result.success(null);
+        break;
+      }
+      case "markers#clear": {
+        for (Marker mk : markers.values()) mk.remove();
+        markers.clear();
+        result.success(null);
+        break;
+      }
+      case "polylines#add": {
+        @SuppressWarnings("unchecked") Map<String, Object> p = (Map<String, Object>) call.arguments;
+        String id = (String) p.get("id");
+        @SuppressWarnings("unchecked") List<Map<String, Object>> pts = (List<Map<String, Object>>) p.get("points");
+        PolylineOptions opts = new PolylineOptions();
+        for (Map<String, Object> pt : pts) {
+          opts.add(new LatLng(toDouble(pt.get("lat")), toDouble(pt.get("lng"))));
+        }
+        int color = ((Number) p.get("color")).intValue();
+        double width = toDouble(p.get("width"));
+        boolean geodesic = (Boolean) p.get("geodesic");
+        boolean dotted = (Boolean) p.get("dotted");
+        opts.color(color).width((float) width).geodesic(geodesic).pattern(dotted ? java.util.Arrays.asList(new com.google.android.gms.maps.model.Dot(), new com.google.android.gms.maps.model.Gap(12)) : null);
+        com.google.android.gms.maps.model.Polyline polyline = map.addPolyline(opts);
+        com.google.android.gms.maps.model.Polyline old = polylines.put(id, polyline);
+        if (old != null) old.remove();
+        result.success(null);
+        break;
+      }
+      case "polylines#remove": {
+        String id = (String) call.arguments;
+        com.google.android.gms.maps.model.Polyline p = polylines.remove(id);
+        if (p != null) p.remove();
+        result.success(null);
+        break;
+      }
+      case "polylines#clear": {
+        for (com.google.android.gms.maps.model.Polyline p : polylines.values()) p.remove();
+        polylines.clear();
+        result.success(null);
+        break;
+      }
+      case "map#takeSnapshot": {
+        map.snapshot(bmp -> {
+          if (bmp == null) { channel.invokeMethod("snapshot#error", null); return; }
+          java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+          bmp.compress(Bitmap.CompressFormat.PNG, 100, bos);
+          result.success(bos.toByteArray());
+        });
+        break;
+      }
+      case "map#dispose": {
+        dispose();
+        result.success(null);
+        break;
+      }
+      default:
+        result.notImplemented();
+    }
+  }
+
+  private void addMarkerInternal(Map<String, Object> m) {
+    String id = (String) m.get("id");
+    @SuppressWarnings("unchecked") Map<String, Object> pos = (Map<String, Object>) m.get("position");
+    double lat = toDouble(pos.get("lat"));
+    double lng = toDouble(pos.get("lng"));
+    String title = (String) m.get("title");
+    String snippet = (String) m.get("snippet");
+    String iconUrl = (String) m.get("iconUrl");
+    double anchorU = toDouble(m.get("anchorU"));
+    double anchorV = toDouble(m.get("anchorV"));
+    double rotation = toDouble(m.get("rotation"));
+    boolean draggable = (Boolean) m.get("draggable");
+    double zIndex = toDouble(m.get("zIndex"));
+
+    Marker existing = markers.remove(id);
+    if (existing != null) existing.remove();
+
+    MarkerOptions opts = new MarkerOptions()
+        .position(new LatLng(lat, lng))
+        .anchor((float) anchorU, (float) anchorV)
+        .rotation((float) rotation)
+        .zIndex((float) zIndex)
+        .draggable(draggable);
+    if (title != null) opts.title(title);
+    if (snippet != null) opts.snippet(snippet);
+
+    if (iconUrl != null && !iconUrl.isEmpty()) {
+      Bitmap cached = iconCache.get(iconUrl);
+      if (cached != null) {
+        opts.icon(BitmapDescriptorFactory.fromBitmap(cached));
+        Marker mk = map.addMarker(opts);
+        if (mk != null) markers.put(id, mk);
+      } else {
+        // load async
+        executor.submit(() -> {
+          Bitmap bmp = null;
+          try { bmp = loadBitmap(iconUrl); } catch (Throwable ignored) {}
+          final Bitmap ready = bmp;
+          mapView.post(() -> {
+            if (ready != null) iconCache.put(iconUrl, ready);
+            MarkerOptions myOpts = new MarkerOptions()
+                .position(new LatLng(lat, lng))
+                .anchor((float) anchorU, (float) anchorV)
+                .rotation((float) rotation)
+                .zIndex((float) zIndex)
+                .draggable(draggable)
+                .title(title)
+                .snippet(snippet);
+            if (ready != null) myOpts.icon(BitmapDescriptorFactory.fromBitmap(ready));
+            Marker mk = map.addMarker(myOpts);
+            if (mk != null) markers.put(id, mk);
+          });
+        });
+      }
+    } else {
+      Marker mk = map.addMarker(opts);
+      if (mk != null) markers.put(id, mk);
+    }
+  }
+
+  private Bitmap loadBitmap(String urlStr) throws Exception {
+    final String name = md5(urlStr) + ".png";
+    final java.io.File f = new java.io.File(diskCacheDir, name);
+    if (f.exists()) {
+      Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
+      if (b != null) return b;
+    }
+    URL url = new URL(urlStr);
+    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+    conn.setConnectTimeout(4000);
+    conn.setReadTimeout(4000);
+    conn.connect();
+    try (InputStream is = conn.getInputStream()) {
+      Bitmap bmp = BitmapFactory.decodeStream(is);
+      if (bmp != null) {
+        // save PNG
+        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(f)) {
+          bmp.compress(Bitmap.CompressFormat.PNG, 100, fos);
+        } catch (Throwable ignored) {}
+      }
+      return bmp;
+    } finally {
+      conn.disconnect();
+    }
+  }
+
+  private static String md5(String s) {
+    try {
+      java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+      byte[] bytes = md.digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      StringBuilder sb = new StringBuilder();
+      for (byte b : bytes) sb.append(String.format("%02x", b));
+      return sb.toString();
+    } catch (Exception e) {
+      return Integer.toHexString(s.hashCode());
+    }
+  }
+
+  private static double toDouble(Object o) { return o == null ? 0 : ((Number) o).doubleValue(); }
+  private static Double toNullableDouble(Object o) { return o == null ? null : ((Number) o).doubleValue(); }
+
+  @Override
+  public boolean onMarkerClick(@NonNull Marker marker) {
+    for (Map.Entry<String, Marker> e : markers.entrySet()) {
+      if (e.getValue().equals(marker)) {
+        channel.invokeMethod("event#onMarkerTap", e.getKey());
+        break;
+      }
+    }
+    return false; // allow default behavior
+  }
+}

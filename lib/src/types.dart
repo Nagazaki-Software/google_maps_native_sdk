@@ -4,6 +4,7 @@ part of 'package:google_maps_native_sdk/google_maps_native_sdk.dart';
 class LatLng {
   final double latitude;
   final double longitude;
+
   /// Creates a coordinate at [latitude], [longitude].
   const LatLng(this.latitude, this.longitude);
 
@@ -17,11 +18,24 @@ class LatLng {
 class CameraPosition {
   final LatLng target;
   final double zoom;
+  final double tilt;
+  final double bearing;
+
   /// Creates a camera positioned at [target] and [zoom] level (default 14).
-  const CameraPosition({required this.target, this.zoom = 14});
+  const CameraPosition({
+    required this.target,
+    this.zoom = 14,
+    this.tilt = 0,
+    this.bearing = 0,
+  });
 
   /// Serializes to the map format expected by the native layers.
-  Map<String, dynamic> toMap() => {'target': target.toMap(), 'zoom': zoom};
+  Map<String, dynamic> toMap() => {
+        'target': target.toMap(),
+        'zoom': zoom,
+        'tilt': tilt,
+        'bearing': bearing,
+      };
 }
 
 /// Marker configuration.
@@ -45,7 +59,7 @@ class MarkerOptions {
     this.snippet,
     this.iconUrl,
     this.anchorU = 0.5,
-    this.anchorV = 1.0,
+    this.anchorV = 0.62,
     this.rotation = 0,
     this.draggable = false,
     this.zIndex = 0,
@@ -151,20 +165,20 @@ class PolylineCodec {
   }
 }
 
-  int _argbColorInt(Color c) {
-    try {
-      final dynamic d = c;
-      final int a = ((d.a as double) * 255.0).round() & 0xff;
-      final int r = ((d.r as double) * 255.0).round() & 0xff;
-      final int g = ((d.g as double) * 255.0).round() & 0xff;
-      final int b = ((d.b as double) * 255.0).round() & 0xff;
-      return (a << 24) | (r << 16) | (g << 8) | b;
-    } catch (_) {
+int _argbColorInt(Color c) {
+  try {
+    final dynamic d = c;
+    final int a = ((d.a as double) * 255.0).round() & 0xff;
+    final int r = ((d.r as double) * 255.0).round() & 0xff;
+    final int g = ((d.g as double) * 255.0).round() & 0xff;
+    final int b = ((d.b as double) * 255.0).round() & 0xff;
+    return (a << 24) | (r << 16) | (g << 8) | b;
+  } catch (_) {
     final s = c.toString();
     final match = RegExp(r'0x([0-9a-fA-F]{8})').firstMatch(s);
     if (match != null) {
       return int.parse(match.group(1)!, radix: 16);
     }
     return 0xFF000000; // opaque black fallback
-    }
   }
+}
