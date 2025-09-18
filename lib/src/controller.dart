@@ -251,6 +251,26 @@ class GoogleMapController {
     }
   }
 
+  /// Updates the marker icon from raw PNG/JPEG bytes on native platforms.
+  /// On web, this is currently a no-op.
+  Future<void> setMarkerIconBytes(
+    String id,
+    Uint8List bytes, {
+    double? anchorU,
+    double? anchorV,
+  }) async {
+    if (_web != null) {
+      // Optional: could be implemented by converting to data URL on web host
+      return;
+    }
+    await _channel.invokeMethod('markers#setIconBytes', {
+      'id': id,
+      'bytes': bytes,
+      if (anchorU != null) 'anchorU': anchorU,
+      if (anchorV != null) 'anchorV': anchorV,
+    });
+  }
+
   /// Removes a marker by [id].
   Future<void> removeMarker(String id) async {
     if (_web != null) {

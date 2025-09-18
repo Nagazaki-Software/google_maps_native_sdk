@@ -424,6 +424,29 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
         result.success(null);
         break;
       }
+      case "markers#setIconBytes": {
+        @SuppressWarnings("unchecked") Map<String, Object> m = (Map<String, Object>) call.arguments;
+        String id = (String) m.get("id");
+        Marker marker = markers.get(id);
+        if (marker != null) {
+          Object bytesObj = m.get("bytes");
+          if (bytesObj instanceof byte[]) {
+            byte[] bytes = (byte[]) bytesObj;
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bmp != null) {
+              Bitmap scaled = scaleBitmapToDp(bmp, 48);
+              marker.setIcon(BitmapDescriptorFactory.fromBitmap(scaled));
+            }
+          }
+          Object au = m.get("anchorU");
+          Object av = m.get("anchorV");
+          if (au instanceof Number && av instanceof Number) {
+            marker.setAnchor(((Number) au).floatValue(), ((Number) av).floatValue());
+          }
+        }
+        result.success(null);
+        break;
+      }
       case "markers#remove": {
         String id = (String) call.arguments;
         if (clusteringEnabled && clusterManager != null) {

@@ -234,6 +234,19 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
         }
       }
       result(nil)
+    case "markers#setIconBytes":
+      if let m = call.arguments as? [String: Any], let id = m["id"] as? String, let marker = markers[id] {
+        if let data = m["bytes"] as? FlutterStandardTypedData {
+          if let img = UIImage(data: data.data) {
+            let resized = self.resize(img, maxPoints: 48)
+            marker.icon = resized
+          }
+        }
+        if let au = m["anchorU"] as? CGFloat, let av = m["anchorV"] as? CGFloat {
+          marker.groundAnchor = CGPoint(x: au, y: av)
+        }
+      }
+      result(nil)
     case "markers#remove":
       if let id = call.arguments as? String {
         if clusteringEnabled {
