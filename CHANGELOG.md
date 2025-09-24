@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.1
+
+EN
+- Markers: broadened `iconUrl` compatibility across platforms.
+  - Android/iOS/Web now support `asset://...` and `data:image/...` (base64) in addition to `http(s)://`.
+  - Android: marker is added immediately with default icon, then swaps to the downloaded icon asynchronously (better UX on slow networks). Network fetch hardened (timeouts, redirects, User-Agent). Disk cache kept; icons resized to ~48dp.
+  - iOS: added `asset://` and `data:` handling with disk cache; icons resized to ~48dp.
+  - Web: for remote icons, set `icon` as `{ url, crossOrigin: 'anonymous' }` to reduce CORS issues; accept `asset://` (mapped to `assets/`) and `data:` URLs; apply simple DROP animation on add.
+- Dart: `MarkerOptions.iconUrl` comment updated to reflect new schemes.
+
+PT-BR
+- Markers: maior compatibilidade de `iconUrl` em todas as plataformas.
+  - Android/iOS/Web agora aceitam `asset://...` e `data:image/...` (base64) além de `http(s)://`.
+  - Android: o marker aparece imediatamente com ícone padrão e depois troca para o ícone baixado (UX melhor em redes lentas). Download mais robusto (timeouts, redirects, User-Agent). Mantido cache em disco; redimensiona para ~48dp.
+  - iOS: suporte a `asset://` e `data:` com cache em disco; redimensiona para ~48dp.
+  - Web: para ícones remotos, usamos `{ url, crossOrigin: 'anonymous' }` para mitigar CORS; `asset://` mapeado para `assets/` e `data:` suportado; animação DROP ao criar marker.
+- Dart: comentário de `MarkerOptions.iconUrl` atualizado com os esquemas suportados.
+
 ## 0.7.0
 
 EN

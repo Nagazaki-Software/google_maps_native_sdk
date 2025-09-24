@@ -44,7 +44,7 @@ class MarkerOptions {
   final LatLng position;
   final String? title;
   final String? snippet;
-  final String? iconUrl; // http(s) or asset://
+  final String? iconUrl; // http(s), asset:// or data:
   final double anchorU; // 0..1
   final double anchorV; // 0..1
   final double rotation;

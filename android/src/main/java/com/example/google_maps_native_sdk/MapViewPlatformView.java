@@ -23,6 +23,8 @@ import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
 
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
+import android.util.Base64;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -668,25 +670,20 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
         Marker mk = map.addMarker(opts);
         if (mk != null) markers.put(id, mk);
       } else {
-        // load async
+        // Add marker immediately with default icon, then load and swap icon
+        Marker mk = map.addMarker(opts);
+        if (mk != null) markers.put(id, mk);
         executor.submit(() -> {
           Bitmap bmp = null;
           try { bmp = loadBitmap(iconUrl); } catch (Throwable ignored) {}
           final Bitmap ready = bmp;
           mapView.post(() -> {
             Bitmap scaled = ready != null ? scaleBitmapToDp(ready, 48) : null;
-            if (scaled != null) iconCache.put(iconUrl, scaled);
-            MarkerOptions myOpts = new MarkerOptions()
-                .position(new LatLng(lat, lng))
-                .anchor((float) anchorU, (float) anchorV)
-                .rotation((float) rotation)
-                .zIndex((float) zIndex)
-                .draggable(draggable)
-                .title(title)
-                .snippet(snippet);
-            if (scaled != null) myOpts.icon(BitmapDescriptorFactory.fromBitmap(scaled));
-            Marker mk = map.addMarker(myOpts);
-            if (mk != null) markers.put(id, mk);
+            if (scaled != null) {
+              iconCache.put(iconUrl, scaled);
+              Marker current = markers.get(id);
+              if (current != null) current.setIcon(BitmapDescriptorFactory.fromBitmap(scaled));
+            }
           });
         });
       }
@@ -697,6 +694,33 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
   }
 
   private Bitmap loadBitmap(String urlStr) throws Exception {
+    // Support data URLs
+    if (urlStr.startsWith("data:")) {
+      int comma = urlStr.indexOf(',');
+      if (comma > 0) {
+        String meta = urlStr.substring(5, comma); // e.g., image/png;base64
+        String data = urlStr.substring(comma + 1);
+        byte[] bytes = meta.contains("base64") ? Base64.decode(data, Base64.DEFAULT) : data.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        try (InputStream is = new ByteArrayInputStream(bytes)) {
+          return BitmapFactory.decodeStream(is);
+        }
+      }
+      return null;
+    }
+
+    // Support Flutter assets via asset:// prefix
+    if (urlStr.startsWith("asset://")) {
+      String asset = urlStr.substring("asset://".length());
+      try {
+        String lookup = io.flutter.FlutterInjector.instance().flutterLoader().getLookupKeyForAsset(asset);
+        try (InputStream is = context.getAssets().open(lookup)) {
+          return BitmapFactory.decodeStream(is);
+        }
+      } catch (Throwable ignored) { }
+      return null;
+    }
+
+    // Network URL with simple disk caching
     final String name = md5(urlStr) + ".png";
     final java.io.File f = new java.io.File(diskCacheDir, name);
     if (f.exists()) {
@@ -705,8 +729,10 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     }
     URL url = new URL(urlStr);
     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.setConnectTimeout(4000);
-    conn.setReadTimeout(4000);
+    conn.setConnectTimeout(6000);
+    conn.setReadTimeout(6000);
+    conn.setInstanceFollowRedirects(true);
+    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android) GoogleMapsNativeSDK/1.0");
     conn.connect();
     try (InputStream is = conn.getInputStream()) {
       Bitmap bmp = BitmapFactory.decodeStream(is);
@@ -718,7 +744,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
       }
       return bmp;
     } finally {
-      conn.disconnect();
+      try { conn.disconnect(); } catch (Throwable ignored) {}
     }
   }
 

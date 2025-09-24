@@ -455,6 +455,40 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
 
   // Helpers
   private func loadIcon(url: String, done: @escaping (UIImage?) -> Void) {
+    // data: URL support
+    if url.hasPrefix("data:") {
+      if let comma = url.firstIndex(of: ",") {
+        let meta = String(url[url.index(url.startIndex, offsetBy: 5)..<comma])
+        let dataPart = String(url[url.index(after: comma)...])
+        var data: Data? = nil
+        if meta.contains("base64") { data = Data(base64Encoded: dataPart) }
+        else { data = dataPart.data(using: .utf8) }
+        if let d = data, let decoded = UIImage(data: d) {
+          let resized = self.resize(decoded, maxPoints: 48)
+          DispatchQueue.main.async { done(resized) }
+          return
+        }
+      }
+      DispatchQueue.main.async { done(nil) }
+      return
+    }
+
+    // asset:// support (Flutter assets)
+    if url.hasPrefix("asset://") {
+      let assetPath = String(url.dropFirst("asset://".count))
+      let key = FlutterDartProject.lookupKey(forAsset: assetPath)
+      if let path = Bundle.main.path(forResource: key, ofType: nil),
+         let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+         let img = UIImage(data: data) {
+        let resized = self.resize(img, maxPoints: 48)
+        DispatchQueue.main.async { done(resized) }
+      } else {
+        DispatchQueue.main.async { done(nil) }
+      }
+      return
+    }
+
+    // Disk-cached network image
     let name = djb2(url) + ".png"
     let fileURL = iconDiskCacheURL.appendingPathComponent(name)
     if let data = try? Data(contentsOf: fileURL), let img = UIImage(data: data) {

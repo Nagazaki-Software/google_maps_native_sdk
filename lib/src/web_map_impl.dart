@@ -128,12 +128,32 @@ class _WebMapHost implements WebMapHost {
   @override
   Future<void> addMarker(dynamic options) async {
     final maps = js.context['google']['maps'];
+    // Normalize icon URL for web
+    dynamic iconValue;
+    final iconUrl = options.iconUrl;
+    if (iconUrl != null) {
+      String urlStr = iconUrl as String;
+      if (urlStr.startsWith('asset://')) {
+        urlStr = 'assets/' + urlStr.substring('asset://'.length);
+        iconValue = urlStr;
+      } else if (urlStr.startsWith('data:')) {
+        iconValue = urlStr; // data URLs can be used directly
+      } else {
+        iconValue = js.JsObject.jsify({
+          'url': urlStr,
+          // Avoid tainting canvas if ever used; many CDNs require anonymous CORS
+          'crossOrigin': 'anonymous',
+        });
+      }
+    }
     final marker = js.JsObject(maps['Marker'], [
       js.JsObject.jsify({
         'map': map,
         'position': _latLng(options.position),
         'title': options.title,
-        if (options.iconUrl != null) 'icon': options.iconUrl,
+        if (iconValue != null) 'icon': iconValue,
+        // Simple drop animation for visibility
+        'animation': maps['Animation'] != null ? maps['Animation']['DROP'] : null,
         'draggable': options.draggable,
         'zIndex': options.zIndex,
       })
