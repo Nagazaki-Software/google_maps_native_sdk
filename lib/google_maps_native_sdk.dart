@@ -31,6 +31,8 @@ part 'src/static_map.dart';
 part 'src/routes.dart';
 part 'src/flutterflow_helpers.dart';
 part 'src/nav_banner.dart';
+part 'src/heading.dart';
+part 'src/audio_focus.dart';
 
 /// Convenience wrapper exposing package/platform version from the host side.
 class GoogleMapsNativeSdk {

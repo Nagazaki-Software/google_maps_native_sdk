@@ -13,6 +13,10 @@ class NavigationOptions {
   final double cameraZoom;
   final double cameraTilt;
   final bool followBearing; // rotate camera with heading
+  // Heading/compass controls
+  final bool useDeviceHeading; // use device compass/rotation at low speed
+  final double lowSpeedAutoRotateKmh; // freeze below this speed
+  final double headingFilterAlpha; // 0..1 smoothing for heading
   final double voiceAheadDistanceMeters; // deprecated in favor de approachSpeakMeters
   final List<double> approachSpeakMeters; // ex.: [400, 150, 30, 10]
   final double arrivalThresholdMeters; // distÃ¢ncia para considerar chegada
@@ -22,6 +26,9 @@ class NavigationOptions {
   final double ttsRate; // 0.5..1.5
   final double ttsPitch; // 0.5..2.0
   final String? ttsVoice;
+  final bool interruptOnNewInstruction; // stop current TTS before speaking next
+  final bool androidRequestAudioFocus; // request AudioFocus for navigation
+  final bool iosDuckOthers; // set iOS category to duck others
   // Speed monitoring
   final bool speedAlertsEnabled;
   final double? speedLimitKmh; // Limite estÃ¡tico opcional
@@ -49,6 +56,9 @@ class NavigationOptions {
     this.cameraZoom = 17,
     this.cameraTilt = 45,
     this.followBearing = true,
+    this.useDeviceHeading = true,
+    this.lowSpeedAutoRotateKmh = 3.0,
+    this.headingFilterAlpha = 0.25,
     this.voiceAheadDistanceMeters = 60,
     this.approachSpeakMeters = const [400, 150, 30, 10],
     this.arrivalThresholdMeters = 25,
@@ -57,6 +67,9 @@ class NavigationOptions {
     this.ttsRate = 0.95,
     this.ttsPitch = 1.0,
     this.ttsVoice,
+    this.interruptOnNewInstruction = true,
+    this.androidRequestAudioFocus = true,
+    this.iosDuckOthers = true,
     this.speedAlertsEnabled = false,
     this.speedLimitKmh,
     this.speedLimitProvider,
@@ -174,6 +187,7 @@ class NavigationSession {
   final FlutterTts? _tts;
   final String polylineId;
   final _NavShared _shared;
+  StreamSubscription<double>? _headingSub;
 
   NavigationSession._(
     this.controller,
@@ -234,8 +248,12 @@ class NavigationSession {
     _shared.closed = true;
     try { await _sub?.cancel(); } catch (_) {}
     try { _shared.simTimer?.cancel(); } catch (_) {}
+    try { await _headingSub?.cancel(); } catch (_) {}
     if (options.voiceGuidance) {
       try { await _tts?.stop(); } catch (_) {}
+    }
+    if (defaultTargetPlatform == TargetPlatform.android && options.androidRequestAudioFocus) {
+      try { await AudioFocus.abandon(); } catch (_) {}
     }
     if (clearRoute) {
       try { await controller.removePolyline(polylineId); } catch (_) {}
@@ -261,7 +279,7 @@ class MapNavigator {
     await controller.addPolyline(PolylineOptions(id: polylineId, points: route.points, color: polylineColor, width: 6));
     await controller.animateToBounds(route.northeast, route.southwest, padding: 60);
 
-    // Prepare TTS
+    // Prepare TTS / Audio
     FlutterTts? tts;
     if (options.voiceGuidance) {
       tts = FlutterTts();
@@ -275,7 +293,15 @@ class MapNavigator {
           } catch (_) {}
         }
         await tts.awaitSpeakCompletion(true);
+        // iOS ducking
+        if (options.iosDuckOthers) {
+          try { await (tts as dynamic).setIosAudioCategory('playback', ['duckOthers']); } catch (_) {}
+        }
       } catch (_) {}
+      // Android AudioFocus
+      if (defaultTargetPlatform == TargetPlatform.android && options.androidRequestAudioFocus) {
+        try { await AudioFocus.request(); } catch (_) {}
+      }
     }
 
     // Ensure permissions are handled by the host app
@@ -298,6 +324,16 @@ class MapNavigator {
     // Estado compartilhado runtime
     final shared = _NavShared();
 
+    // Device heading (compass/rotation)
+    double? latestHeading;
+    StreamSubscription<double>? headingSub;
+    _AngleSmoother? headingSmoother = options.headingFilterAlpha > 0 ? _AngleSmoother(options.headingFilterAlpha) : null;
+    if (options.followBearing && options.useDeviceHeading) {
+      try {
+        headingSub = DeviceHeading.stream.listen((h) { latestHeading = h; });
+      } catch (_) {}
+    }
+
     // Fala por aproximaÃ§Ã£o em mÃºltiplos limiares
     final Map<int, Set<double>> spokenByStep = {};
 
@@ -311,13 +347,34 @@ class MapNavigator {
 
       // Snapping e bearing
       LatLng camTarget = user;
-      double? camBearing = course;
+      double? camBearing;
+      double? routeBearing;
       if (options.snapToRoute && route.points.length >= 2) {
         final np = _nearestPointOnPolyline(user, route.points);
         camTarget = np.point;
         final a = route.points[np.segIndex];
         final b = route.points[np.segIndex + 1];
-        camBearing = _normalizeBearing(_bearingDegrees(a, b));
+        routeBearing = _normalizeBearing(_bearingDegrees(a, b));
+      }
+
+      // Determine camera bearing
+      if (options.followBearing) {
+        final speed = speedKmh.isFinite ? speedKmh : 0.0;
+        double? candidate;
+        if (speed >= options.lowSpeedAutoRotateKmh) {
+          // Moving: prefer course from location; fallback to route bearing
+          candidate = _normalizeBearing(course) ?? routeBearing;
+        } else {
+          // Low speed / stationary: prefer device heading; fallback to route bearing
+          candidate = _normalizeBearing(latestHeading) ?? routeBearing;
+        }
+        if (candidate != null) {
+          if (headingSmoother != null) {
+            camBearing = headingSmoother.update(candidate);
+          } else {
+            camBearing = candidate;
+          }
+        }
       }
 
       await controller.animateCamera(
@@ -376,7 +433,10 @@ class MapNavigator {
           if (!spokenSet.contains(th) && d <= th) {
             spokenSet.add(th);
             final text = _instructionVoiceText(step, options.language);
-            try { await tts.speak(text); } catch (_) {}
+            try {
+              if (options.interruptOnNewInstruction) { try { await tts.stop(); } catch (_) {} }
+              await tts.speak(text);
+            } catch (_) {}
             instCtl.add(NavInstruction(stepIndex: idx, text: step.instructionText, maneuver: step.maneuver, distanceMeters: d.round()));
             break;
           }
@@ -468,7 +528,9 @@ class MapNavigator {
       });
     }
 
-    return NavigationSession._(controller, options, route, sub, tts, polylineId, shared, stateCtl, instCtl, progressCtl, speedCtl);
+    final sess = NavigationSession._(controller, options, route, sub, tts, polylineId, shared, stateCtl, instCtl, progressCtl, speedCtl);
+    sess._headingSub = headingSub;
+    return sess;
   }
 
   static Future<DirectionsRoute> _fetchNavigationRoute(NavigationOptions options) async {

@@ -138,6 +138,19 @@ class MapPadding {
 class PolylineCodec {
   /// Decodes a Google-encoded polyline string into a list of [LatLng].
   static List<LatLng> decode(String encoded) {
+    // First try precision 1e5; if out-of-range, retry with 1e6 (Polyline6)
+    List<LatLng> pts = _decodeWithPrecision(encoded, 1e5);
+    bool outOfRange = false;
+    for (final p in pts) {
+      if (p.latitude.abs() > 90.0 || p.longitude.abs() > 180.0) { outOfRange = true; break; }
+    }
+    if (outOfRange) {
+      pts = _decodeWithPrecision(encoded, 1e6);
+    }
+    return pts;
+  }
+
+  static List<LatLng> _decodeWithPrecision(String encoded, double precision) {
     final List<LatLng> points = [];
     int index = 0, lat = 0, lng = 0;
     while (index < encoded.length) {
@@ -159,7 +172,7 @@ class PolylineCodec {
       } while (b >= 0x20);
       final dlng = ((result & 1) != 1 ? (result >> 1) : ~(result >> 1));
       lng += dlng;
-      points.add(LatLng(lat / 1e5, lng / 1e5));
+      points.add(LatLng(lat / precision, lng / precision));
     }
     return points;
   }

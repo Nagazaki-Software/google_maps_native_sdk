@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0
+
+EN
+- Navigation: device heading support (iOS CLHeading / Android Rotation Vector) with exponential smoothing and low-speed rules (compass below ~3 km/h, course above).
+- Audio: Android AudioFocus (ducking) and iOS category duckOthers via flutter_tts.
+- Routes API v2: keeps required FieldMask; polyline decoding now auto-detects Polyline6 (1e6 precision) in addition to 1e5.
+- Navigation: option `interruptOnNewInstruction` to stop previous TTS before a new one; camera follow merges route bearing with device/course.
+- Docs: added pages for heading/audio and high-quality polylines; background/location guidance notes.
+
+PT-BR
+- Navegação: heading do dispositivo (iOS CLHeading / Android Rotation Vector) com suavização exponencial e regras de baixa velocidade (bússola abaixo de ~3 km/h, course acima).
+- Áudio: foco/ducking no Android (AudioFocus) e duckOthers no iOS via flutter_tts.
+- Routes API v2: mantém FieldMask obrigatório; decodificação de polyline agora detecta Polyline6 (1e6) além de 1e5.
+- Navegação: `interruptOnNewInstruction` interrompe a fala anterior; follow da câmera combina bearing da rota com heading/course.
+- Docs: novas páginas sobre bússola/áudio e polylines HQ; notas de background/permissões.
+
 ## 0.7.1
 
 EN
