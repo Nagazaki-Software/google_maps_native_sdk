@@ -1,0 +1,60 @@
+﻿    double rotation = toDouble(m.get("rotation"));
+    boolean draggable = (Boolean) m.get("draggable");
+    double zIndex = toDouble(m.get("zIndex"));
+
+    if (clusteringEnabled && clusterManager != null) {
+      ClusterItemImpl old = clusterItems.remove(id);
+      if (old != null) try { clusterManager.removeItem(old); } catch (Throwable ignored) {}
+      ClusterItemImpl item = new ClusterItemImpl(
+          id,
+          new LatLng(lat, lng),
+          title,
+          snippet,
+          iconUrl != null ? iconUrl : "",
+          (float) iconDp,
+          (float) anchorU,
+          (float) anchorV,
+          (float) rotation,
+          (float) zIndex,
+          draggable
+      );
+      clusterItems.put(id, item);
+      clusterManager.addItem(item);
+      clusterManager.cluster();
+      return;
+    }
+
+    Marker existing = markers.remove(id);
+    if (existing != null) existing.remove();
+
+    MarkerOptions opts = new MarkerOptions()
+        .position(new LatLng(lat, lng))
+        .anchor((float) anchorU, (float) anchorV)
+        .rotation((float) rotation)
+        .zIndex((float) zIndex)
+        .draggable(draggable);
+    if (title != null) opts.title(title);
+    if (snippet != null) opts.snippet(snippet);
+
+    if (iconUrl != null && !iconUrl.isEmpty()) {
+      Bitmap cached = iconCache.get(iconUrl);
+      if (cached != null) {
+        Bitmap scaled = scaleBitmapToDp(cached, (int) Math.max(1, iconDp));
+        opts.icon(BitmapDescriptorFactory.fromBitmap(scaled));
+        Marker mk = map.addMarker(opts);
+        if (mk != null) markers.put(id, mk);
+      } else {
+        // Add marker immediately with default icon, then load and swap icon
+        Marker mk = map.addMarker(opts);
+        if (mk != null) markers.put(id, mk);
+        executor.submit(() -> {
+          Bitmap bmp = null;
+          try { bmp = loadBitmap(iconUrl); } catch (Throwable ignored) {}
+          final Bitmap ready = bmp;
+          mapView.post(() -> {
+            Bitmap scaled = ready != null ? scaleBitmapToDp(ready, (int) Math.max(1, iconDp)) : null;
+            if (scaled != null) {
+              iconCache.put(iconUrl, scaled);
+              Marker current = markers.get(id);
+              if (current != null) current.setIcon(BitmapDescriptorFactory.fromBitmap(scaled));
+            }

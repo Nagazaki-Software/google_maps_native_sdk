@@ -1,0 +1,18 @@
+﻿          double lng = pos != null ? toDouble(pos.get("lng")) : old != null ? old.position.longitude : 0;
+          double rotation = m.get("rotation") != null ? toDouble(m.get("rotation")) : (old != null ? old.rotation : 0);
+          ClusterItemImpl item = new ClusterItemImpl(
+              id,
+              new LatLng(lat, lng),
+              old != null ? old.title : null,
+              old != null ? old.snippet : null,
+              old != null ? old.iconUrl : "",
+              old != null ? old.iconDp : 48f,
+              old != null ? old.anchorU : 0.5f,
+              old != null ? old.anchorV : 0.62f,
+              (float) rotation,
+              old != null ? old.zIndex : 0f,
+              old != null && old.draggable
+          );
+          clusterItems.put(id, item);
+          clusterManager.addItem(item);
+          clusterManager.cluster();

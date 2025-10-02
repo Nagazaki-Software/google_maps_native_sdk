@@ -1,0 +1,80 @@
+﻿    final float iconDp;
+    final float anchorU;
+    final float anchorV;
+    final float rotation;
+    final float zIndex;
+    final boolean draggable;
+
+    ClusterItemImpl(String id, LatLng position, String title, String snippet,
+                    String iconUrl, float iconDp, float anchorU, float anchorV, float rotation, float zIndex, boolean draggable) {
+      this.id = id;
+      this.position = position;
+      this.title = title;
+      this.snippet = snippet;
+      this.iconUrl = iconUrl;
+      this.iconDp = iconDp;
+      this.anchorU = anchorU;
+      this.anchorV = anchorV;
+      this.rotation = rotation;
+      this.zIndex = zIndex;
+      this.draggable = draggable;
+    }
+
+    @Override public LatLng getPosition() { return position; }
+    @Override public String getTitle() { return title; }
+    @Override public String getSnippet() { return snippet; }
+    @Override public Float getZIndex() { return zIndex; }
+  }
+
+  // Custom cluster renderer to apply custom marker icons for single items
+  class ClusterRenderer extends com.google.maps.android.clustering.view.DefaultClusterRenderer<ClusterItemImpl> {
+    ClusterRenderer(Context ctx, GoogleMap map, ClusterManager<ClusterItemImpl> mgr) {
+      super(ctx, map, mgr);
+    }
+
+    @Override
+    protected void onBeforeClusterItemRendered(@NonNull ClusterItemImpl item, @NonNull MarkerOptions markerOptions) {
+      super.onBeforeClusterItemRendered(item, markerOptions);
+      if (item.iconUrl != null && !item.iconUrl.isEmpty()) {
+        Bitmap cached = iconCache.get(item.iconUrl);
+        if (cached != null) {
+          Bitmap scaled = scaleBitmapToDp(cached, (int) Math.max(1, item.iconDp));
+          markerOptions.icon(BitmapDescriptorFactory.fromBitmap(scaled));
+        } else {
+          // async load and update after
+          executor.submit(() -> {
+            Bitmap bmp = null;
+            try { bmp = loadBitmap(item.iconUrl); } catch (Throwable ignored) {}
+            Bitmap scaled = bmp != null ? scaleBitmapToDp(bmp, (int) Math.max(1, item.iconDp)) : null;
+            if (scaled != null) iconCache.put(item.iconUrl, scaled);
+            mapView.post(() -> {
+              Marker m = markers.get(item.id);
+              if (m != null && scaled != null) m.setIcon(BitmapDescriptorFactory.fromBitmap(scaled));
+            });
+          });
+        }
+      }
+      markerOptions.anchor(item.anchorU, item.anchorV);
+      markerOptions.rotation(item.rotation);
+      markerOptions.zIndex(item.zIndex);
+      markerOptions.draggable(item.draggable);
+      if (item.title != null) markerOptions.title(item.title);
+      if (item.snippet != null) markerOptions.snippet(item.snippet);
+    }
+
+    @Override
+    protected void onClusterItemRendered(@NonNull ClusterItemImpl item, @NonNull Marker marker) {
+      super.onClusterItemRendered(item, marker);
+      markers.put(item.id, marker);
+    }
+  }
+
+  @Override
+  public View getView() { return mapView; }
+
+  @Override
+  public void dispose() {
+    try {
+      try { mapView.onPause(); } catch (Throwable ignored) {}
+      try { mapView.onStop(); } catch (Throwable ignored) {}
+      try { mapView.onDestroy(); } catch (Throwable ignored) {}

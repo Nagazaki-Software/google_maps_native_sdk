@@ -408,6 +408,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
               old != null ? old.title : null,
               old != null ? old.snippet : null,
               old != null ? old.iconUrl : "",
+              old != null ? old.iconDp : 48f,
               old != null ? old.anchorU : 0.5f,
               old != null ? old.anchorV : 0.62f,
               (float) rotation,
