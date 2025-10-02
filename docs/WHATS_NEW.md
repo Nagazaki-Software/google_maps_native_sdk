@@ -11,3 +11,9 @@ Notes
 title: What's New
 nav_order: 99
 ---
+
+- Navigation UI bridge (Android/iOS): new `NavigationUi.start/stop/isAvailable` to open native Google Navigation UI (when SDK present) with route + theme + language; placeholder fallback otherwise.
+- Android Auto scaffold: minimal `CarAppService` + `Session`/`Screen` to help you wire `androidx.car.app` Navigation templates.
+- CarPlay scaffold: Swift helper `GMNSCarPlayManager.makeRootTemplate()` to kickstart a CarPlay extension (templates Apple).
+- TBT theming + vehicle marker: `NavigationOptions.routeColor`/`routeWidth` and configurable vehicle marker (`vehicleIconUrl`, `vehicleIconDp`, anchors, rotation source).
+- Marker icons: `MarkerOptions.iconDp` to control native icon size scaling with caching on Android/iOS.

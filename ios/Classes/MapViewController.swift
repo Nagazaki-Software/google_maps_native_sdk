@@ -24,18 +24,20 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
     let title: String?
     let snippet: String?
     let iconUrl: String?
+    let iconDp: CGFloat
     let anchorU: CGFloat
     let anchorV: CGFloat
     let rotation: Double
     let zIndex: Double
     let draggable: Bool
 
-    init(id: String, position: CLLocationCoordinate2D, title: String?, snippet: String?, iconUrl: String?, anchorU: CGFloat, anchorV: CGFloat, rotation: Double, zIndex: Double, draggable: Bool) {
+    init(id: String, position: CLLocationCoordinate2D, title: String?, snippet: String?, iconUrl: String?, iconDp: CGFloat, anchorU: CGFloat, anchorV: CGFloat, rotation: Double, zIndex: Double, draggable: Bool) {
       self.id = id
       self.position = position
       self.title = title
       self.snippet = snippet
       self.iconUrl = iconUrl
+      self.iconDp = iconDp
       self.anchorU = anchorU
       self.anchorV = anchorV
       self.rotation = rotation
@@ -315,6 +317,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
             title: marker.title,
             snippet: marker.snippet,
             iconUrl: nil,
+            iconDp: 48,
             anchorU: marker.groundAnchor.x,
             anchorV: marker.groundAnchor.y,
             rotation: marker.rotation,
@@ -363,6 +366,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
       title: m["title"] as? String,
       snippet: m["snippet"] as? String,
       iconUrl: (m["iconUrl"] as? String),
+      iconDp: (m["iconDp"] as? CGFloat) ?? 48,
       anchorU: (m["anchorU"] as? CGFloat) ?? 0.5,
       anchorV: (m["anchorV"] as? CGFloat) ?? 0.62,
       rotation: (m["rotation"] as? Double) ?? 0,
@@ -383,11 +387,12 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
   func renderer(_ renderer: GMUClusterRenderer, willRenderMarker marker: GMSMarker) {
     if let item = marker.userData as? GmnsClusterItem {
       if let iconUrl = item.iconUrl, !iconUrl.isEmpty {
-        if let cached = iconCache.object(forKey: iconUrl as NSString) {
+        let key = "\(iconUrl)#dp=\(Int(round(item.iconDp)))" as NSString
+        if let cached = iconCache.object(forKey: key) {
           marker.icon = cached
         } else {
-          loadIcon(url: iconUrl) { [weak self, weak marker] img in
-            if let img = img { self?.iconCache.setObject(img, forKey: iconUrl as NSString); marker?.icon = img }
+          loadIcon(url: iconUrl, maxPoints: item.iconDp) { [weak self, weak marker] img in
+            if let img = img { self?.iconCache.setObject(img, forKey: key); marker?.icon = img }
           }
         }
       }
@@ -419,11 +424,13 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
     if let anchorU = m["anchorU"] as? CGFloat, let anchorV = m["anchorV"] as? CGFloat { mk.groundAnchor = CGPoint(x: anchorU, y: anchorV) }
 
     if let iconUrl = m["iconUrl"] as? String, !iconUrl.isEmpty {
-      if let cached = iconCache.object(forKey: iconUrl as NSString) { mk.icon = cached }
+      let iconDp = (m["iconDp"] as? CGFloat) ?? 48
+      let key = "\(iconUrl)#dp=\(Int(round(iconDp)))" as NSString
+      if let cached = iconCache.object(forKey: key) { mk.icon = cached }
       else {
-        loadIcon(url: iconUrl) { [weak self, weak mk] img in
+        loadIcon(url: iconUrl, maxPoints: iconDp) { [weak self, weak mk] img in
           if let img = img {
-            self?.iconCache.setObject(img, forKey: iconUrl as NSString)
+            self?.iconCache.setObject(img, forKey: key)
             mk?.icon = img
           }
         }
@@ -454,7 +461,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
   }
 
   // Helpers
-  private func loadIcon(url: String, done: @escaping (UIImage?) -> Void) {
+  private func loadIcon(url: String, maxPoints: CGFloat = 48, done: @escaping (UIImage?) -> Void) {
     // data: URL support
     if url.hasPrefix("data:") {
       if let comma = url.firstIndex(of: ",") {
@@ -464,7 +471,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
         if meta.contains("base64") { data = Data(base64Encoded: dataPart) }
         else { data = dataPart.data(using: .utf8) }
         if let d = data, let decoded = UIImage(data: d) {
-          let resized = self.resize(decoded, maxPoints: 48)
+          let resized = self.resize(decoded, maxPoints: maxPoints)
           DispatchQueue.main.async { done(resized) }
           return
         }
@@ -480,7 +487,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
       if let path = Bundle.main.path(forResource: key, ofType: nil),
          let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
          let img = UIImage(data: data) {
-        let resized = self.resize(img, maxPoints: 48)
+        let resized = self.resize(img, maxPoints: maxPoints)
         DispatchQueue.main.async { done(resized) }
       } else {
         DispatchQueue.main.async { done(nil) }
@@ -489,7 +496,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
     }
 
     // Disk-cached network image
-    let name = djb2(url) + ".png"
+    let name = djb2(url + "#dp=\(Int(round(maxPoints)))") + ".png"
     let fileURL = iconDiskCacheURL.appendingPathComponent(name)
     if let data = try? Data(contentsOf: fileURL), let img = UIImage(data: data) {
       done(img)
@@ -499,7 +506,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
     let task = URLSession.shared.dataTask(with: u) { data, _, _ in
       var img: UIImage? = nil
       if let data = data, let decoded = UIImage(data: data) {
-        let resized = self.resize(decoded, maxPoints: 48)
+        let resized = self.resize(decoded, maxPoints: maxPoints)
         img = resized
         if let png = resized.pngData() { try? png.write(to: fileURL) }
       }

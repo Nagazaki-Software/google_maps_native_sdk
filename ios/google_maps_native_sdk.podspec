@@ -12,6 +12,8 @@ Pod::Spec.new do |s|
   s.source_files     = 'Classes/**/*'
   s.platform         = :ios, '12.0'
   s.frameworks       = 'UIKit', 'CoreLocation'
+  # Optional CarPlay helpers (host app must add CarPlay extension)
+  s.frameworks      += ['CarPlay']
   s.dependency 'Flutter'
   s.dependency 'GoogleMaps'
   s.dependency 'Google-Maps-iOS-Utils'

@@ -45,6 +45,7 @@ class MarkerOptions {
   final String? title;
   final String? snippet;
   final String? iconUrl; // http(s), asset:// or data:
+  final double? iconDp; // max logical dp for the larger side (native scaled)
   final double anchorU; // 0..1
   final double anchorV; // 0..1
   final double rotation;
@@ -58,6 +59,7 @@ class MarkerOptions {
     this.title,
     this.snippet,
     this.iconUrl,
+    this.iconDp,
     this.anchorU = 0.5,
     this.anchorV = 0.62,
     this.rotation = 0,
@@ -72,6 +74,7 @@ class MarkerOptions {
         if (title != null) 'title': title,
         if (snippet != null) 'snippet': snippet,
         if (iconUrl != null) 'iconUrl': iconUrl,
+        if (iconDp != null) 'iconDp': iconDp,
         'anchorU': anchorU,
         'anchorV': anchorV,
         'rotation': rotation,

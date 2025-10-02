@@ -2,6 +2,8 @@
 
 typedef SpeedLimitProvider = Future<double?> Function(LatLng position);
 
+enum VehicleRotationSource { course, route, deviceHeading }
+
 class NavigationOptions {
   final String apiKey;
   final LatLng origin;
@@ -78,7 +80,29 @@ class NavigationOptions {
     this.rerouteOnOffRoute = true,
     this.useRoutesV2 = false,
     this.simulationSpeedKmh,
+    this.routeColor,
+    this.routeWidth = 6,
+    this.showVehicleMarker = false,
+    this.vehicleMarkerId = 'gmns_vehicle',
+    this.vehicleIconUrl,
+    this.vehicleIconAnchorU = 0.5,
+    this.vehicleIconAnchorV = 0.62,
+    this.vehicleIconDp = 48,
+    this.vehicleRotationSource = VehicleRotationSource.course,
   });
+
+  // Aparência/tema da rota e marcador do veículo (declarações)
+  // Nota: os campos são declarados aqui para evitar conflitos com acentos
+  // em comentários em ambientes Windows. A ordem não impacta o Dart.
+  final Color? routeColor;
+  final double routeWidth;
+  final bool showVehicleMarker;
+  final String vehicleMarkerId;
+  final String? vehicleIconUrl;
+  final double vehicleIconAnchorU;
+  final double vehicleIconAnchorV;
+  final double vehicleIconDp;
+  final VehicleRotationSource vehicleRotationSource;
 }
 
 class DirectionsRoute {
@@ -258,6 +282,9 @@ class NavigationSession {
     if (clearRoute) {
       try { await controller.removePolyline(polylineId); } catch (_) {}
     }
+    if (options.showVehicleMarker) {
+      try { await controller.removeMarker(options.vehicleMarkerId); } catch (_) {}
+    }
     await _stateCtl.close();
     await _instCtl.close();
     await _progressCtl.close();
@@ -276,7 +303,8 @@ class MapNavigator {
     final route = await _fetchNavigationRoute(options);
 
     // Draw polyline & fit bounds
-    await controller.addPolyline(PolylineOptions(id: polylineId, points: route.points, color: polylineColor, width: 6));
+    final Color routeClr = options.routeColor ?? polylineColor;
+    await controller.addPolyline(PolylineOptions(id: polylineId, points: route.points, color: routeClr, width: options.routeWidth));
     await controller.animateToBounds(route.northeast, route.southwest, padding: 60);
 
     // Prepare TTS / Audio
@@ -340,6 +368,7 @@ class MapNavigator {
     // Auxiliares de limite de velocidade dinÃ¢mico
     double? dynSpeedLimit;
     DateTime lastSpeedFetch = DateTime.fromMillisecondsSinceEpoch(0);
+    bool vehicleMarkerAdded = false;
 
     // FunÃ§Ã£o para processar uma atualizaÃ§Ã£o de posiÃ§Ã£o (GPS ou simulaÃ§Ã£o)
     Future<void> onPosition(LatLng user, {double speedKmh = 0.0, double? course}) async {
@@ -374,6 +403,46 @@ class MapNavigator {
           } else {
             camBearing = candidate;
           }
+        }
+      }
+
+      // Vehicle marker: add/update if enabled
+      if (options.showVehicleMarker) {
+        final markerPos = options.snapToRoute ? camTarget : user;
+        if (!vehicleMarkerAdded) {
+          try {
+            await controller.addMarker(MarkerOptions(
+              id: options.vehicleMarkerId,
+              position: markerPos,
+              iconUrl: options.vehicleIconUrl,
+              iconDp: options.vehicleIconDp,
+              anchorU: options.vehicleIconAnchorU,
+              anchorV: options.vehicleIconAnchorV,
+              rotation: (options.vehicleRotationSource == VehicleRotationSource.deviceHeading)
+                  ? (camBearing ?? 0)
+                  : (options.vehicleRotationSource == VehicleRotationSource.route
+                      ? (routeBearing ?? camBearing ?? 0)
+                      : (_normalizeBearing(course) ?? routeBearing ?? camBearing ?? 0)),
+              zIndex: 9999,
+            ));
+            vehicleMarkerAdded = true;
+          } catch (_) {}
+        } else {
+          double? rot;
+          switch (options.vehicleRotationSource) {
+            case VehicleRotationSource.course:
+              rot = _normalizeBearing(course) ?? routeBearing ?? camBearing;
+              break;
+            case VehicleRotationSource.route:
+              rot = routeBearing ?? _normalizeBearing(course) ?? camBearing;
+              break;
+            case VehicleRotationSource.deviceHeading:
+              rot = camBearing ?? routeBearing ?? _normalizeBearing(course);
+              break;
+          }
+          try {
+            await controller.updateMarker(options.vehicleMarkerId, position: markerPos, rotation: rot);
+          } catch (_) {}
         }
       }
 
@@ -478,7 +547,7 @@ class MapNavigator {
                     ));
                   }
                 }
-                await controller.addPolyline(PolylineOptions(id: polylineId, points: r.points, color: polylineColor, width: 6));
+                await controller.addPolyline(PolylineOptions(id: polylineId, points: r.points, color: routeClr, width: options.routeWidth));
                 route.points..clear()..addAll(r.points);
                 route.steps..clear()..addAll(newSteps);
                 cumul..clear()..addAll(_cumulativeDistances(route.points));
@@ -492,7 +561,7 @@ class MapNavigator {
                 mode: options.mode,
                 language: options.language,
               );
-              await controller.addPolyline(PolylineOptions(id: polylineId, points: newRoute.points, color: polylineColor, width: 6));
+              await controller.addPolyline(PolylineOptions(id: polylineId, points: newRoute.points, color: routeClr, width: options.routeWidth));
               route.points..clear()..addAll(newRoute.points);
               cumul..clear()..addAll(_cumulativeDistances(route.points));
               spokenByStep.clear();

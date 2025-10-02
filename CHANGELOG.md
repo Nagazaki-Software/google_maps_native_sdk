@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.9.0 (unreleased)
+
+EN
+- Navigation UI bridge (Android/iOS): new Dart API `NavigationUi.start/stop/isAvailable` with `NavUiOptions` (apiKey, origin/destination, intermediates, languageCode, mapId, theme colors and day/night mode). Android launches the Google Navigation UI Activity when available and passes route, theme and language via Intent extras; iOS uses `GMSNavigationServices.provideAPIKey` and presents `GMSNavigationViewController` via reflection (placeholder fallback when SDK is absent).
+- Android Auto scaffold: added minimal `CarAppService` (`GmnsCarAppService`) + `Session`/`Screen` placeholders using Android for Cars App Library (`androidx.car.app`). Declared service in manifest with `navigation` category.
+- CarPlay scaffold: added `GMNSCarPlayManager` helper (Swift) and linked `CarPlay` framework in podspec to ease building a CarPlay extension in the host app.
+- Theming and vehicle marker (TBT): `NavigationOptions` gained `routeColor`, `routeWidth`, `showVehicleMarker`, `vehicleIconUrl`, `vehicleIconDp`, `vehicleIconAnchorU/V`, and `vehicleRotationSource` (course/route/device heading). The vehicle marker updates position/rotation on Android/iOS.
+- Marker icons: `MarkerOptions.iconDp` to control max icon size in dp/logical points; native layers now scale/cache accordingly (Android/iOS).
+- Docs: updated Navigation guide with `NavigationUi` usage and vehicle marker theming; added a Car integration guide (Android Auto & CarPlay).
+
+PT-BR
+- Ponte para a UI de Navegação (Android/iOS): nova API Dart `NavigationUi.start/stop/isAvailable` com `NavUiOptions` (apiKey, origem/destino, intermediários, idioma, mapId, cores de tema e dia/noite). Android inicia a Activity de UI de Navegação do Google (quando disponível) com rota/tema/idioma nos extras; iOS usa `GMSNavigationServices.provideAPIKey` e apresenta `GMSNavigationViewController` via reflexão (fallback com placeholder quando o SDK não está presente).
+- Scaffold Android Auto: incluído `CarAppService` mínimo (`GmnsCarAppService`) + `Session`/`Screen` placeholders usando Android for Cars App Library (`androidx.car.app`). Serviço declarado no manifest com categoria `navigation`.
+- Scaffold CarPlay: incluído helper `GMNSCarPlayManager` (Swift) e link do framework `CarPlay` no podspec para facilitar a extensão CarPlay no app host.
+- Tema e marcador do veículo (TBT): `NavigationOptions` ganhou `routeColor`, `routeWidth`, `showVehicleMarker`, `vehicleIconUrl`, `vehicleIconDp`, `vehicleIconAnchorU/V` e `vehicleRotationSource` (course/rota/bússola). O marcador do veículo atualiza posição/rotação no Android/iOS.
+- Ícones de marker: `MarkerOptions.iconDp` para limitar tamanho máximo em dp/pontos lógicos; camadas nativas agora redimensionam e fazem cache (Android/iOS).
+- Docs: guia de Navegação atualizado com `NavigationUi` e tema do veículo; novo guia de integração em carros (Android Auto & CarPlay).
+
 ## 0.8.0
 
 EN

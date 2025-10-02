@@ -21,6 +21,7 @@ public class GoogleMapsNativeSdkPlugin implements FlutterPlugin, ActivityAware, 
   private Activity activity;
   private EventChannel headingChannel;
   private MethodChannel audioChannel;
+  private MethodChannel navUiChannel;
   private android.hardware.SensorManager sensorManager;
   private android.hardware.Sensor rotationSensor;
   private android.hardware.SensorEventListener headingListener;
@@ -125,6 +126,37 @@ public class GoogleMapsNativeSdkPlugin implements FlutterPlugin, ActivityAware, 
         result.notImplemented();
       }
     });
+
+    // Navigation UI bridge (Android)
+    navUiChannel = new MethodChannel(messenger, "google_maps_native_sdk/nav_ui");
+    navUiChannel.setMethodCallHandler((call, result) -> {
+      String m = call.method;
+      if ("nav_ui#isAvailable".equals(m)) {
+        boolean available = isNavigationSdkAvailable();
+        result.success(available);
+      } else if ("nav_ui#start".equals(m)) {
+        if (activity == null) { result.success(false); return; }
+        android.content.Intent intent = new android.content.Intent(activity, NavUiActivity.class);
+        if (call.arguments instanceof java.util.Map) {
+          @SuppressWarnings("unchecked") java.util.Map<String, Object> args = (java.util.Map<String, Object>) call.arguments;
+          try {
+            org.json.JSONObject json = new org.json.JSONObject(args);
+            intent.putExtra("nav_args_json", json.toString());
+          } catch (Throwable ignored) {}
+        }
+        try {
+          activity.startActivity(intent);
+          result.success(true);
+        } catch (Throwable t) {
+          result.success(false);
+        }
+      } else if ("nav_ui#stop".equals(m)) {
+        try { NavUiActivity.finishCurrent(); } catch (Throwable ignored) {}
+        result.success(null);
+      } else {
+        result.notImplemented();
+      }
+    });
   }
 
   @Override
@@ -134,6 +166,15 @@ public class GoogleMapsNativeSdkPlugin implements FlutterPlugin, ActivityAware, 
     } catch (Throwable ignored) {}
     headingChannel = null;
     audioChannel = null;
+    navUiChannel = null;
+  }
+
+  // Reflection-based check so the plugin compiles without Navigation SDK dependency
+  public static boolean isNavigationSdkAvailable() {
+    try { Class.forName("com.google.android.libraries.navigation.NavigationApi"); return true; } catch (Throwable ignored) {}
+    try { Class.forName("com.google.android.libraries.navigationui.NavigationActivity"); return true; } catch (Throwable ignored) {}
+    try { Class.forName("com.google.android.libraries.navigation.ui.NavigationFragment"); return true; } catch (Throwable ignored) {}
+    return false;
   }
 
   // ActivityAware
@@ -176,3 +217,87 @@ public class GoogleMapsNativeSdkPlugin implements FlutterPlugin, ActivityAware, 
   @Override public void onActivitySaveInstanceState(@NonNull Activity a, @NonNull Bundle outState) { }
   @Override public void onActivityDestroyed(@NonNull Activity a) { if (a == activity) MapViewPlatformView.dispatchDestroy(); }
 }
+
+// Lightweight host activity to embed Google Navigation SDK UI if available.
+class NavUiActivity extends android.app.Activity {
+  private static java.lang.ref.WeakReference<NavUiActivity> CURRENT;
+
+  static void finishCurrent() {
+    NavUiActivity a = CURRENT != null ? CURRENT.get() : null;
+    if (a != null) a.finish();
+  }
+
+  @Override protected void onCreate(android.os.Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    CURRENT = new java.lang.ref.WeakReference<>(this);
+    // Try to inflate Navigation SDK view reflectively (if present), else show placeholder
+    android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+    root.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
+        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+        android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+    setContentView(root);
+
+    boolean available = GoogleMapsNativeSdkPlugin.isNavigationSdkAvailable();
+    if (available) {
+      // Parse args JSON
+      double oLat=0,oLng=0,dLat=0,dLng=0; String apiKey=""; String mapId=null; String language=""; String themeMode="auto";
+      int colorPrimary=0, colorOnPrimary=0, colorSurface=0, colorOnSurface=0;
+      String jsonStr = getIntent().getStringExtra("nav_args_json");
+      if (jsonStr != null) {
+        try {
+          org.json.JSONObject j = new org.json.JSONObject(jsonStr);
+          apiKey = j.optString("apiKey", "");
+          language = j.optString("languageCode", "");
+          themeMode = j.optString("themeMode", "auto");
+          if (j.has("mapId")) mapId = j.optString("mapId", null);
+          colorPrimary = (int) j.optLong("colorPrimary", 0);
+          colorOnPrimary = (int) j.optLong("colorOnPrimary", 0);
+          colorSurface = (int) j.optLong("colorSurface", 0);
+          colorOnSurface = (int) j.optLong("colorOnSurface", 0);
+          org.json.JSONObject o = j.optJSONObject("origin");
+          if (o != null) { oLat = o.optDouble("lat", 0); oLng = o.optDouble("lng", 0); }
+          org.json.JSONObject d = j.optJSONObject("destination");
+          if (d != null) { dLat = d.optDouble("lat", 0); dLng = d.optDouble("lng", 0); }
+        } catch (Throwable ignored) {}
+      }
+      // Try Navigation UI Activity first
+      try {
+        Class<?> act = Class.forName("com.google.android.libraries.navigation.ui.NavigationActivity");
+        android.content.Intent i = new android.content.Intent(this, act);
+        i.putExtra("origin_lat", oLat);
+        i.putExtra("origin_lng", oLng);
+        i.putExtra("destination_lat", dLat);
+        i.putExtra("destination_lng", dLng);
+        i.putExtra("api_key", apiKey);
+        if (mapId != null) i.putExtra("map_id", mapId);
+        i.putExtra("language_code", language);
+        i.putExtra("theme_mode", themeMode);
+        i.putExtra("color_primary", colorPrimary);
+        i.putExtra("color_on_primary", colorOnPrimary);
+        i.putExtra("color_surface", colorSurface);
+        i.putExtra("color_on_surface", colorOnSurface);
+        startActivity(i);
+        finish();
+        return;
+      } catch (Throwable ignored) {}
+
+      // Fallback: show placeholder but signal SDK detected
+      android.widget.TextView tv = new android.widget.TextView(this);
+      tv.setText("Navigation SDK detected. Please wire Navigation view or activity.");
+      tv.setTextColor(0xFF000000);
+      tv.setBackgroundColor(0xFFFFFFFF);
+      tv.setPadding(32, 32, 32, 32);
+      root.addView(tv);
+    } else {
+      android.widget.TextView tv = new android.widget.TextView(this);
+      tv.setText("Google Navigation SDK not available. Add dependency and keys.");
+      tv.setTextColor(0xFF000000);
+      tv.setBackgroundColor(0xFFFFFFFF);
+      tv.setPadding(32, 32, 32, 32);
+      root.addView(tv);
+    }
+  }
+}
+
+// Helper available-check via reflection
+class GoogleMapsNativeSdkPluginHelper {}

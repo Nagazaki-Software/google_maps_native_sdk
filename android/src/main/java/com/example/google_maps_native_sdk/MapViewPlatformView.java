@@ -118,6 +118,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     final String title;
     final String snippet;
     final String iconUrl;
+    final float iconDp;
     final float anchorU;
     final float anchorV;
     final float rotation;
@@ -125,12 +126,13 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     final boolean draggable;
 
     ClusterItemImpl(String id, LatLng position, String title, String snippet,
-                    String iconUrl, float anchorU, float anchorV, float rotation, float zIndex, boolean draggable) {
+                    String iconUrl, float iconDp, float anchorU, float anchorV, float rotation, float zIndex, boolean draggable) {
       this.id = id;
       this.position = position;
       this.title = title;
       this.snippet = snippet;
       this.iconUrl = iconUrl;
+      this.iconDp = iconDp;
       this.anchorU = anchorU;
       this.anchorV = anchorV;
       this.rotation = rotation;
@@ -156,14 +158,14 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
       if (item.iconUrl != null && !item.iconUrl.isEmpty()) {
         Bitmap cached = iconCache.get(item.iconUrl);
         if (cached != null) {
-          Bitmap scaled = scaleBitmapToDp(cached, 48);
+          Bitmap scaled = scaleBitmapToDp(cached, (int) Math.max(1, item.iconDp));
           markerOptions.icon(BitmapDescriptorFactory.fromBitmap(scaled));
         } else {
           // async load and update after
           executor.submit(() -> {
             Bitmap bmp = null;
             try { bmp = loadBitmap(item.iconUrl); } catch (Throwable ignored) {}
-            Bitmap scaled = bmp != null ? scaleBitmapToDp(bmp, 48) : null;
+            Bitmap scaled = bmp != null ? scaleBitmapToDp(bmp, (int) Math.max(1, item.iconDp)) : null;
             if (scaled != null) iconCache.put(item.iconUrl, scaled);
             mapView.post(() -> {
               Marker m = markers.get(item.id);
@@ -242,7 +244,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
           Marker mk = e.getValue();
           String id = e.getKey();
           LatLng p = mk.getPosition();
-          ClusterItemImpl item = new ClusterItemImpl(id, p, mk.getTitle(), mk.getSnippet(), "", 0.5f, 0.62f, 0f, 0f, false);
+          ClusterItemImpl item = new ClusterItemImpl(id, p, mk.getTitle(), mk.getSnippet(), "", 48f, 0.5f, 0.62f, 0f, 0f, false);
           clusterItems.put(id, item);
           clusterManager.addItem(item);
           mk.remove();
@@ -623,6 +625,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     String title = (String) m.get("title");
     String snippet = (String) m.get("snippet");
     String iconUrl = (String) m.get("iconUrl");
+    double iconDp = m.get("iconDp") instanceof Number ? ((Number) m.get("iconDp")).doubleValue() : 48.0;
     double anchorU = toDouble(m.get("anchorU"));
     double anchorV = toDouble(m.get("anchorV"));
     double rotation = toDouble(m.get("rotation"));
@@ -638,6 +641,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
           title,
           snippet,
           iconUrl != null ? iconUrl : "",
+          (float) iconDp,
           (float) anchorU,
           (float) anchorV,
           (float) rotation,
@@ -665,7 +669,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     if (iconUrl != null && !iconUrl.isEmpty()) {
       Bitmap cached = iconCache.get(iconUrl);
       if (cached != null) {
-        Bitmap scaled = scaleBitmapToDp(cached, 48);
+        Bitmap scaled = scaleBitmapToDp(cached, (int) Math.max(1, iconDp));
         opts.icon(BitmapDescriptorFactory.fromBitmap(scaled));
         Marker mk = map.addMarker(opts);
         if (mk != null) markers.put(id, mk);
@@ -678,7 +682,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
           try { bmp = loadBitmap(iconUrl); } catch (Throwable ignored) {}
           final Bitmap ready = bmp;
           mapView.post(() -> {
-            Bitmap scaled = ready != null ? scaleBitmapToDp(ready, 48) : null;
+            Bitmap scaled = ready != null ? scaleBitmapToDp(ready, (int) Math.max(1, iconDp)) : null;
             if (scaled != null) {
               iconCache.put(iconUrl, scaled);
               Marker current = markers.get(id);

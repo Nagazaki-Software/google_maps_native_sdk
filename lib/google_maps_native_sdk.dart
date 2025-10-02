@@ -33,6 +33,7 @@ part 'src/flutterflow_helpers.dart';
 part 'src/nav_banner.dart';
 part 'src/heading.dart';
 part 'src/audio_focus.dart';
+part 'src/navigation_ui.dart';
 
 /// Convenience wrapper exposing package/platform version from the host side.
 class GoogleMapsNativeSdk {

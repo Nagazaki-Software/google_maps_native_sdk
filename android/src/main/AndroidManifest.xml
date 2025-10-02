@@ -1,5 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.google_maps_native_sdk">
-    <application/>
-</manifest>
+    <application>
+        <activity
+            android:name=".NavUiActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
 
+        <!-- Android Auto projected app service (navigation category scaffold) -->
+        <service
+            android:name=".car.GmnsCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.action.BIND_CAR_APP" />
+            </intent-filter>
+            <meta-data android:name="androidx.car.app.category" android:value="navigation" />
+            <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="1" />
+        </service>
+    </application>
+</manifest>
