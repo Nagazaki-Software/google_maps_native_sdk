@@ -15,6 +15,9 @@ class _WebMapHost implements WebMapHost {
 
   final Map<String, js.JsObject> _markers = {}; // id -> Marker
   final Map<String, js.JsObject> _polylines = {}; // id -> Polyline
+  final Map<String, Timer> _bounceTimers = {}; // id -> stop timers
+  final Map<String, js.JsObject> _pulseCircles = {}; // id -> Circle
+  final Map<String, int> _pulseRafs = {}; // id -> RAF id
 
   void Function(String id)? _onMarkerTap;
   void Function()? _onMapLoaded;
@@ -178,6 +181,9 @@ class _WebMapHost implements WebMapHost {
   Future<void> removeMarker(String id) async {
     final m = _markers.remove(id);
     m?.callMethod('setMap', [null]);
+    final t = _bounceTimers.remove(id);
+    t?.cancel();
+    await stopPulse(id);
   }
 
   @override
@@ -186,6 +192,114 @@ class _WebMapHost implements WebMapHost {
       m.callMethod('setMap', [null]);
     }
     _markers.clear();
+    for (final t in _bounceTimers.values) {
+      t.cancel();
+    }
+    _bounceTimers.clear();
+    // Clear pulses
+    for (final c in _pulseCircles.values) { c.callMethod('setMap', [null]); }
+    _pulseCircles.clear();
+    for (final id in _pulseRafs.keys.toList()) { try { html.window.cancelAnimationFrame(_pulseRafs[id]!); } catch (_) {} }
+    _pulseRafs.clear();
+  }
+
+  @override
+  Future<void> startBounce(String id, {int durationMs = 700, int repeat = 0}) async {
+    final m = _markers[id];
+    if (m == null) return;
+    final maps = js.context['google']['maps'];
+    if (maps == null || !maps.hasProperty('Animation')) return;
+    // Start native JS bounce (indefinite by default)
+    m.callMethod('setAnimation', [maps['Animation']['BOUNCE']]);
+    // Clear any existing timer
+    final existing = _bounceTimers.remove(id);
+    existing?.cancel();
+    if (repeat > 0) {
+      final totalMs = (durationMs * repeat).clamp(1, 1 << 31);
+      _bounceTimers[id] = Timer(Duration(milliseconds: totalMs), () {
+        try { m.callMethod('setAnimation', [null]); } catch (_) {}
+        _bounceTimers.remove(id);
+      });
+    }
+  }
+
+  @override
+  Future<void> stopBounce(String id) async {
+    final m = _markers[id];
+    if (m == null) return;
+    try { m.callMethod('setAnimation', [null]); } catch (_) {}
+    final t = _bounceTimers.remove(id);
+    t?.cancel();
+  }
+
+  int _alphaFromArgb(int argb) => (argb >> 24) & 0xFF;
+  String _hexRgbFromArgb(int argb) {
+    final r = (argb >> 16) & 0xFF;
+    final g = (argb >> 8) & 0xFF;
+    final b = argb & 0xFF;
+    String h(int v) => v.toRadixString(16).padLeft(2, '0');
+    return '#${h(r)}${h(g)}${h(b)}';
+  }
+
+  @override
+  Future<void> startPulse(String id,
+      {required int color, double maxRadiusMeters = 120, int durationMs = 1200, int repeat = 0}) async {
+    // Clean existing
+    await stopPulse(id);
+    final m = _markers[id];
+    if (m == null) return;
+    final maps = js.context['google']['maps'];
+    final center = m.callMethod('getPosition', []);
+    final circle = js.JsObject(maps['Circle'], [
+      js.JsObject.jsify({
+        'map': map,
+        'center': center,
+        'radius': 0,
+        'strokeOpacity': 0,
+        'fillColor': _hexRgbFromArgb(color),
+        'fillOpacity': (_alphaFromArgb(color) / 255.0),
+        'zIndex': 0,
+      })
+    ]);
+    _pulseCircles[id] = circle;
+
+    int remaining = repeat <= 0 ? 1 << 30 : repeat; // large number for infinite
+    num? startTs;
+    final total = durationMs.toDouble();
+    final baseAlpha = _alphaFromArgb(color) / 255.0;
+
+    void step(num ts) {
+      startTs ??= ts;
+      final elapsed = ts - startTs!;
+      final t = (elapsed / total).clamp(0, 1);
+      final radius = (t * maxRadiusMeters);
+      circle.callMethod('setOptions', [js.JsObject.jsify({
+        'radius': radius,
+        'fillOpacity': baseAlpha * (1 - t),
+        'center': m.callMethod('getPosition', []),
+      })]);
+      if (t < 1) {
+        _pulseRafs[id] = html.window.requestAnimationFrame(step);
+      } else {
+        remaining -= 1;
+        if (remaining > 0) {
+          startTs = null;
+          _pulseRafs[id] = html.window.requestAnimationFrame(step);
+        } else {
+          stopPulse(id);
+        }
+      }
+    }
+
+    _pulseRafs[id] = html.window.requestAnimationFrame(step);
+  }
+
+  @override
+  Future<void> stopPulse(String id) async {
+    final raf = _pulseRafs.remove(id);
+    if (raf != null) { try { html.window.cancelAnimationFrame(raf); } catch (_) {} }
+    final c = _pulseCircles.remove(id);
+    c?.callMethod('setMap', [null]);
   }
 
   @override

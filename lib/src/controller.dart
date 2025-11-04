@@ -289,6 +289,81 @@ class GoogleMapController {
     }
   }
 
+  /// Starts a bounce animation on a marker. Useful to indicate an active state
+  /// (e.g. searching for a driver).
+  ///
+  /// - [id]: marker identifier
+  /// - [durationMs]: duration of one up+down cycle in milliseconds
+  /// - [height]: approximate bounce height. On Android/iOS this is interpreted
+  ///   in logical pixels; on Web the native BOUNCE animation is used.
+  /// - [repeat]: number of cycles; pass 0 for infinite until [stopMarkerBounce]
+  ///   is called.
+  Future<void> startMarkerBounce(
+    String id, {
+    int durationMs = 700,
+    double height = 20,
+    int repeat = 0,
+  }) async {
+    if (_web != null) {
+      await _web!.startBounce(id, durationMs: durationMs, repeat: repeat);
+    } else {
+      await _channel.invokeMethod('markers#startBounce', {
+        'id': id,
+        'durationMs': durationMs,
+        'height': height,
+        'repeat': repeat,
+      });
+    }
+  }
+
+  /// Stops any active bounce animation on the given marker id.
+  Future<void> stopMarkerBounce(String id) async {
+    if (_web != null) {
+      await _web!.stopBounce(id);
+    } else {
+      await _channel.invokeMethod('markers#stopBounce', id);
+    }
+  }
+
+  /// Starts a pulsing halo around the given marker with configurable color.
+  /// This mimics the search/radar effect shown in ride-hailing apps.
+  ///
+  /// - [color]: ARGB color for the pulse. Alpha is respected and will fade
+  ///   out towards 0 during the pulse.
+  /// - [maxRadiusMeters]: radius the circle expands to (in meters).
+  /// - [durationMs]: duration of a single pulse cycle.
+  /// - [repeat]: number of cycles; 0 for infinite until [stopMarkerPulse].
+  Future<void> startMarkerPulse(
+    String id, {
+    Color color = const Color(0x551976D2),
+    double maxRadiusMeters = 120,
+    int durationMs = 1200,
+    int repeat = 0,
+  }) async {
+    final args = {
+      'id': id,
+      'color': color.value,
+      'maxRadius': maxRadiusMeters,
+      'durationMs': durationMs,
+      'repeat': repeat,
+    };
+    if (_web != null) {
+      await _web!.startPulse(id,
+          color: color.value, maxRadiusMeters: maxRadiusMeters, durationMs: durationMs, repeat: repeat);
+    } else {
+      await _channel.invokeMethod('markers#startPulse', args);
+    }
+  }
+
+  /// Stops the pulsing halo around the marker, if any.
+  Future<void> stopMarkerPulse(String id) async {
+    if (_web != null) {
+      await _web!.stopPulse(id);
+    } else {
+      await _channel.invokeMethod('markers#stopPulse', id);
+    }
+  }
+
   /// Adds a polyline with [options]. Re-adding with same id replaces existing.
   Future<void> addPolyline(PolylineOptions options) async {
     if (_web != null) {

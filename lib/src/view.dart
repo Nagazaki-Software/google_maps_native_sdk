@@ -20,6 +20,7 @@ class GoogleMapView extends StatefulWidget {
     this.mapId,
     this.onMapCreated,
     this.webApiKey,
+    this.onMarkerTap,
   });
 
   /// Initial camera position when the map is first shown.
@@ -52,6 +53,12 @@ class GoogleMapView extends StatefulWidget {
   /// Called when the underlying platform view is created.
   final MapCreatedCallback? onMapCreated;
 
+  /// Optional convenience callback fired when a marker is tapped. Useful to
+  /// open any Flutter widget (bottom sheet, dialog, overlay, etc.).
+  /// If you need more control, you can also listen to
+  /// `GoogleMapController.onMarkerTap` directly.
+  final void Function(BuildContext context, String markerId)? onMarkerTap;
+
   /// Web only: API key for the Google Maps JavaScript API. If null, you must
   /// include the script manually in web/index.html.
   final String? webApiKey;
@@ -62,6 +69,7 @@ class GoogleMapView extends StatefulWidget {
 
 class _GoogleMapViewState extends State<GoogleMapView> {
   GoogleMapController? _controller;
+  StreamSubscription<String>? _markerTapSub;
 
   @override
   Widget build(BuildContext context) {
@@ -96,6 +104,7 @@ class _GoogleMapViewState extends State<GoogleMapView> {
           host.setOnMapLoaded(() => ctrl.handleWebMapLoaded());
           _controller = ctrl;
           widget.onMapCreated?.call(ctrl);
+          _wireMarkerTap();
         },
       );
     }
@@ -125,11 +134,25 @@ class _GoogleMapViewState extends State<GoogleMapView> {
     controller._bindCallbacks();
     _controller = controller;
     widget.onMapCreated?.call(controller);
+    _wireMarkerTap();
   }
 
   @override
   void dispose() {
+    _markerTapSub?.cancel();
     _controller?.dispose();
     super.dispose();
+  }
+
+  void _wireMarkerTap() {
+    _markerTapSub?.cancel();
+    final cb = widget.onMarkerTap;
+    final c = _controller;
+    if (cb != null && c != null) {
+      _markerTapSub = c.onMarkerTap.listen((id) {
+        if (!mounted) return;
+        cb(context, id);
+      });
+    }
   }
 }

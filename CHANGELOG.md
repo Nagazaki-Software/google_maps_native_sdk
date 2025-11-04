@@ -10,6 +10,13 @@ EN
 - Marker icons: `MarkerOptions.iconDp` to control max icon size in dp/logical points; native layers now scale/cache accordingly (Android/iOS).
 - Docs: updated Navigation guide with `NavigationUi` usage and vehicle marker theming; added a Car integration guide (Android Auto & CarPlay).
 
+- Markers: Bounce animation API — `startMarkerBounce(id, {durationMs, height, repeat})` and `stopMarkerBounce(id)` (Android/iOS/Web).
+- Markers: Pulse/halo with color — `startMarkerPulse(id, {color, maxRadiusMeters, durationMs, repeat})` and `stopMarkerPulse(id)` (Android/iOS/Web).
+- Real-time rendering: forces redraw after marker/polyline/tiles/heatmap mutations on Android/iOS to avoid requiring a user tap to refresh.
+- Flutter convenience: `GoogleMapView.onMarkerTap(BuildContext, String)` so apps can open any Flutter component (bottom sheet/dialog/overlay) on pin tap.
+- Super cache: memory+disk cache keyed by `url#dp=<size>`; disk cache LRU pruning (~32MB or 300 files) on Android/iOS.
+- Docs: Markers page documents Bounce/Pulse; Events shows `onMarkerTap` with `BuildContext` example.
+
 PT-BR
 - Ponte para a UI de Navegação (Android/iOS): nova API Dart `NavigationUi.start/stop/isAvailable` com `NavUiOptions` (apiKey, origem/destino, intermediários, idioma, mapId, cores de tema e dia/noite). Android inicia a Activity de UI de Navegação do Google (quando disponível) com rota/tema/idioma nos extras; iOS usa `GMSNavigationServices.provideAPIKey` e apresenta `GMSNavigationViewController` via reflexão (fallback com placeholder quando o SDK não está presente).
 - Scaffold Android Auto: incluído `CarAppService` mínimo (`GmnsCarAppService`) + `Session`/`Screen` placeholders usando Android for Cars App Library (`androidx.car.app`). Serviço declarado no manifest com categoria `navigation`.
@@ -17,6 +24,13 @@ PT-BR
 - Tema e marcador do veículo (TBT): `NavigationOptions` ganhou `routeColor`, `routeWidth`, `showVehicleMarker`, `vehicleIconUrl`, `vehicleIconDp`, `vehicleIconAnchorU/V` e `vehicleRotationSource` (course/rota/bússola). O marcador do veículo atualiza posição/rotação no Android/iOS.
 - Ícones de marker: `MarkerOptions.iconDp` para limitar tamanho máximo em dp/pontos lógicos; camadas nativas agora redimensionam e fazem cache (Android/iOS).
 - Docs: guia de Navegação atualizado com `NavigationUi` e tema do veículo; novo guia de integração em carros (Android Auto & CarPlay).
+
+- Markers: animação de Bounce — `startMarkerBounce(id, {durationMs, height, repeat})` e `stopMarkerBounce(id)` (Android/iOS/Web).
+- Markers: animação de Pulse/halo com cor — `startMarkerPulse(id, {color, maxRadiusMeters, durationMs, repeat})` e `stopMarkerPulse(id)` (Android/iOS/Web).
+- Renderização em tempo real: força redraw após alterações de markers/polylines/tiles/heatmap no Android/iOS (sem precisar tocar no mapa).
+- Conveniência Flutter: `GoogleMapView.onMarkerTap(BuildContext, String)` permite abrir qualquer componente Flutter (bottom sheet/diálogo/overlay) ao tocar no pin.
+- Super cache: cache memória+disco com chave `url#dp=<tamanho>` e limpeza LRU (~32MB ou 300 arquivos) no Android/iOS.
+- Docs: página de Markers com Bounce/Pulse; Eventos mostra `onMarkerTap` com `BuildContext`.
 
 ## 0.8.0
 
@@ -230,6 +244,7 @@ EN
 - `GoogleMapView` widget with `AndroidView` / `UiKitView`.
 - `GoogleMapController` with: markers (add/update/remove/clear), polylines (add/remove/clear), camera (move/fit bounds), map style, traffic, myLocation, padding, snapshot.
 - Icon cache: LRU (Android) and NSCache (iOS) with async download.
+ - Super cache: Android memory+disk agora com chave `url#dp` e limpeza LRU (~32MB ou 300 arquivos). iOS idem para o cache em disco.
 - Functional example (`example/`) simulating a ride flow (pickup/dropoff/route/driver).
 
 PT-BR

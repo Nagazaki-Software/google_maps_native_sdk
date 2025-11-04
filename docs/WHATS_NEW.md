@@ -17,3 +17,7 @@ nav_order: 99
 - CarPlay scaffold: Swift helper `GMNSCarPlayManager.makeRootTemplate()` to kickstart a CarPlay extension (templates Apple).
 - TBT theming + vehicle marker: `NavigationOptions.routeColor`/`routeWidth` and configurable vehicle marker (`vehicleIconUrl`, `vehicleIconDp`, anchors, rotation source).
 - Marker icons: `MarkerOptions.iconDp` to control native icon size scaling with caching on Android/iOS.
+ - Super cache improvements:
+   - Android: memory+disk cache keyed by `url#dp=<size>` (evita reescala em cadeia e artefatos). Cache em disco com limpeza LRU (~32MB ou 300 arquivos).
+   - iOS: cache em disco também com limpeza LRU (~32MB ou 300 arquivos) e chave `url#dp`.
+   - Web: usa cache do navegador; sem mudanças.

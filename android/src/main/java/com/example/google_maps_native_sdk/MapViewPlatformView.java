@@ -6,6 +6,10 @@ import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.util.LruCache;
 import android.view.View;
+import android.animation.ValueAnimator;
+import android.view.animation.LinearInterpolator;
+import android.view.animation.AccelerateDecelerateInterpolator;
+import android.graphics.Point;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -50,6 +54,8 @@ import com.google.maps.android.heatmaps.HeatmapTileProvider;
 import com.google.android.gms.maps.model.TileOverlay;
 import com.google.android.gms.maps.model.TileOverlayOptions;
 import com.google.android.gms.maps.model.UrlTileProvider;
+import com.google.android.gms.maps.model.Circle;
+import com.google.android.gms.maps.model.CircleOptions;
 
 class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCallHandler, GoogleMap.OnMarkerClickListener {
   private final Context context;
@@ -64,6 +70,8 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
   private final Map<String, com.google.android.gms.maps.model.Polyline> polylines = new HashMap<>();
   private final Map<String, TileOverlay> tileOverlays = new HashMap<>();
   private final Map<String, ClusterItemImpl> clusterItems = new HashMap<>();
+  private final Map<String, ValueAnimator> markerAnimators = new HashMap<>();
+  private final Map<String, Pulse> pulseMap = new HashMap<>();
   // Track instances to forward host lifecycle
   private static final java.util.Set<MapViewPlatformView> INSTANCES = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
@@ -106,6 +114,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     this.diskCacheDir = new java.io.File(context.getCacheDir(), "gmns_icons");
     //noinspection ResultOfMethodCallIgnored
     this.diskCacheDir.mkdirs();
+    executor.submit(() -> { try { pruneDiskCache(32L * 1024L * 1024L, 300); } catch (Throwable ignored) {} });
     synchronized (INSTANCES) { INSTANCES.add(this); }
   }
 
@@ -156,20 +165,22 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     protected void onBeforeClusterItemRendered(@NonNull ClusterItemImpl item, @NonNull MarkerOptions markerOptions) {
       super.onBeforeClusterItemRendered(item, markerOptions);
       if (item.iconUrl != null && !item.iconUrl.isEmpty()) {
-        Bitmap cached = iconCache.get(item.iconUrl);
+        String key = item.iconUrl + "#dp=" + (int) Math.max(1, item.iconDp);
+        Bitmap cached = iconCache.get(key);
         if (cached != null) {
-          Bitmap scaled = scaleBitmapToDp(cached, (int) Math.max(1, item.iconDp));
-          markerOptions.icon(BitmapDescriptorFactory.fromBitmap(scaled));
+          markerOptions.icon(BitmapDescriptorFactory.fromBitmap(cached));
         } else {
           // async load and update after
           executor.submit(() -> {
-            Bitmap bmp = null;
-            try { bmp = loadBitmap(item.iconUrl); } catch (Throwable ignored) {}
-            Bitmap scaled = bmp != null ? scaleBitmapToDp(bmp, (int) Math.max(1, item.iconDp)) : null;
-            if (scaled != null) iconCache.put(item.iconUrl, scaled);
+            Bitmap ready = null;
+            try { ready = loadBitmapScaled(item.iconUrl, (int) Math.max(1, item.iconDp)); } catch (Throwable ignored) {}
+            final Bitmap finalBmp = ready;
             mapView.post(() -> {
-              Marker m = markers.get(item.id);
-              if (m != null && scaled != null) m.setIcon(BitmapDescriptorFactory.fromBitmap(scaled));
+              if (finalBmp != null) {
+                iconCache.put(key, finalBmp);
+                Marker m = markers.get(item.id);
+                if (m != null) m.setIcon(BitmapDescriptorFactory.fromBitmap(finalBmp));
+              }
             });
           });
         }
@@ -384,11 +395,13 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
           boolean ok = map.setMapStyle(style == null ? null : new com.google.android.gms.maps.model.MapStyleOptions(style));
           result.success(ok);
         } catch (Throwable t) { result.error("style_error","Invalid style", t.toString()); }
+        scheduleRefresh();
         break;
       }
       case "markers#add": {
         @SuppressWarnings("unchecked") Map<String, Object> m = (Map<String, Object>) call.arguments;
         addMarkerInternal(m);
+        scheduleRefresh();
         result.success(null);
         break;
       }
@@ -426,6 +439,7 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
             if (m.get("rotation") != null) marker.setRotation(((Double) toDouble(m.get("rotation"))).floatValue());
           }
         }
+        scheduleRefresh();
         result.success(null);
         break;
       }
@@ -449,6 +463,40 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
             marker.setAnchor(((Number) au).floatValue(), ((Number) av).floatValue());
           }
         }
+        scheduleRefresh();
+        result.success(null);
+        break;
+      }
+      case "markers#startBounce": {
+        @SuppressWarnings("unchecked") Map<String, Object> args = (Map<String, Object>) call.arguments;
+        String id = (String) args.get("id");
+        int durationMs = args.get("durationMs") instanceof Number ? ((Number) args.get("durationMs")).intValue() : 700;
+        double height = args.get("height") instanceof Number ? ((Number) args.get("height")).doubleValue() : 20.0;
+        int repeat = args.get("repeat") instanceof Number ? ((Number) args.get("repeat")).intValue() : 0;
+        startMarkerBounce(id, durationMs, height, repeat);
+        result.success(null);
+        break;
+      }
+      case "markers#stopBounce": {
+        String id = (String) call.arguments;
+        stopMarkerBounce(id);
+        result.success(null);
+        break;
+      }
+      case "markers#startPulse": {
+        @SuppressWarnings("unchecked") Map<String, Object> args = (Map<String, Object>) call.arguments;
+        String id = (String) args.get("id");
+        int durationMs = args.get("durationMs") instanceof Number ? ((Number) args.get("durationMs")).intValue() : 1200;
+        double maxRadius = args.get("maxRadius") instanceof Number ? ((Number) args.get("maxRadius")).doubleValue() : 120.0;
+        int repeat = args.get("repeat") instanceof Number ? ((Number) args.get("repeat")).intValue() : 0;
+        int color = args.get("color") instanceof Number ? ((Number) args.get("color")).intValue() : 0x551976D2;
+        startMarkerPulse(id, durationMs, maxRadius, color, repeat);
+        result.success(null);
+        break;
+      }
+      case "markers#stopPulse": {
+        String id = (String) call.arguments;
+        stopMarkerPulse(id);
         result.success(null);
         break;
       }
@@ -462,6 +510,8 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
           Marker marker = markers.remove(id);
           if (marker != null) marker.remove();
         }
+        stopMarkerBounce(id);
+        stopMarkerPulse(id);
         result.success(null);
         break;
       }
@@ -473,6 +523,13 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
         }
         for (Marker mk : markers.values()) mk.remove();
         markers.clear();
+        for (ValueAnimator va : markerAnimators.values()) { try { va.cancel(); } catch (Throwable ignored) {} }
+        markerAnimators.clear();
+        for (Pulse pp : pulseMap.values()) {
+          try { if (pp.animator != null) pp.animator.cancel(); } catch (Throwable ignored) {}
+          try { if (pp.circle != null) pp.circle.remove(); } catch (Throwable ignored) {}
+        }
+        pulseMap.clear();
         result.success(null);
         break;
       }
@@ -668,10 +725,10 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     if (snippet != null) opts.snippet(snippet);
 
     if (iconUrl != null && !iconUrl.isEmpty()) {
-      Bitmap cached = iconCache.get(iconUrl);
+      String key = iconUrl + "#dp=" + (int) Math.max(1, iconDp);
+      Bitmap cached = iconCache.get(key);
       if (cached != null) {
-        Bitmap scaled = scaleBitmapToDp(cached, (int) Math.max(1, iconDp));
-        opts.icon(BitmapDescriptorFactory.fromBitmap(scaled));
+        opts.icon(BitmapDescriptorFactory.fromBitmap(cached));
         Marker mk = map.addMarker(opts);
         if (mk != null) markers.put(id, mk);
       } else {
@@ -680,14 +737,13 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
         if (mk != null) markers.put(id, mk);
         executor.submit(() -> {
           Bitmap bmp = null;
-          try { bmp = loadBitmap(iconUrl); } catch (Throwable ignored) {}
+          try { bmp = loadBitmapScaled(iconUrl, (int) Math.max(1, iconDp)); } catch (Throwable ignored) {}
           final Bitmap ready = bmp;
           mapView.post(() -> {
-            Bitmap scaled = ready != null ? scaleBitmapToDp(ready, (int) Math.max(1, iconDp)) : null;
-            if (scaled != null) {
-              iconCache.put(iconUrl, scaled);
+            if (ready != null) {
+              iconCache.put(key, ready);
               Marker current = markers.get(id);
-              if (current != null) current.setIcon(BitmapDescriptorFactory.fromBitmap(scaled));
+              if (current != null) current.setIcon(BitmapDescriptorFactory.fromBitmap(ready));
             }
           });
         });
@@ -698,7 +754,8 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     }
   }
 
-  private Bitmap loadBitmap(String urlStr) throws Exception {
+  private Bitmap loadBitmapScaled(String urlStr) throws Exception { return loadBitmapScaled(urlStr, 48); }
+  private Bitmap loadBitmapScaled(String urlStr, int iconDp) throws Exception {
     // Support data URLs
     if (urlStr.startsWith("data:")) {
       int comma = urlStr.indexOf(',');
@@ -707,7 +764,8 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
         String data = urlStr.substring(comma + 1);
         byte[] bytes = meta.contains("base64") ? Base64.decode(data, Base64.DEFAULT) : data.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         try (InputStream is = new ByteArrayInputStream(bytes)) {
-          return BitmapFactory.decodeStream(is);
+          Bitmap raw = BitmapFactory.decodeStream(is);
+          return raw != null ? scaleBitmapToDp(raw, Math.max(1, iconDp)) : null;
         }
       }
       return null;
@@ -719,14 +777,15 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
       try {
         String lookup = io.flutter.FlutterInjector.instance().flutterLoader().getLookupKeyForAsset(asset);
         try (InputStream is = context.getAssets().open(lookup)) {
-          return BitmapFactory.decodeStream(is);
+          Bitmap raw = BitmapFactory.decodeStream(is);
+          return raw != null ? scaleBitmapToDp(raw, Math.max(1, iconDp)) : null;
         }
       } catch (Throwable ignored) { }
       return null;
     }
 
-    // Network URL with simple disk caching
-    final String name = md5(urlStr) + ".png";
+    // Network URL with disk caching of the scaled variant
+    final String name = md5(urlStr + "#dp=" + Math.max(1, iconDp)) + ".png";
     final java.io.File f = new java.io.File(diskCacheDir, name);
     if (f.exists()) {
       Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
@@ -740,17 +799,28 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android) GoogleMapsNativeSDK/1.0");
     conn.connect();
     try (InputStream is = conn.getInputStream()) {
-      Bitmap bmp = BitmapFactory.decodeStream(is);
-      if (bmp != null) {
-        // save PNG
+      Bitmap raw = BitmapFactory.decodeStream(is);
+      Bitmap scaled = raw != null ? scaleBitmapToDp(raw, Math.max(1, iconDp)) : null;
+      if (scaled != null) {
         try (java.io.FileOutputStream fos = new java.io.FileOutputStream(f)) {
-          bmp.compress(Bitmap.CompressFormat.PNG, 100, fos);
+          scaled.compress(Bitmap.CompressFormat.PNG, 100, fos);
         } catch (Throwable ignored) {}
+        executor.submit(() -> { try { pruneDiskCache(32L * 1024L * 1024L, 300); } catch (Throwable ignored2) {} });
       }
-      return bmp;
+      return scaled;
     } finally {
       try { conn.disconnect(); } catch (Throwable ignored) {}
     }
+  }
+
+  private void pruneDiskCache(long maxBytes, int maxFiles) {
+    java.io.File[] files = diskCacheDir.listFiles();
+    if (files == null || files.length == 0) return;
+    java.util.Arrays.sort(files, java.util.Comparator.comparingLong(java.io.File::lastModified));
+    long total = 0; for (java.io.File f : files) total += f.length();
+    int count = files.length; int idx = 0;
+    while ((total > maxBytes || count > maxFiles) && idx < files.length) {
+      java.io.File f = files[idx++]; long len = f.length(); f.delete(); total -= len; count--; }
   }
 
   private static String md5(String s) {
@@ -792,6 +862,126 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
 
   static void dispatchStart() { synchronized (INSTANCES) { for (MapViewPlatformView v : INSTANCES) v.onHostStart(); } }
   static void dispatchResume() { synchronized (INSTANCES) { for (MapViewPlatformView v : INSTANCES) v.onHostResume(); } }
+  private void startMarkerBounce(String id, int durationMs, double heightDp, int repeat) {
+    try {
+      final Marker marker = markers.get(id);
+      if (marker == null || map == null) return;
+      // Cancel any existing animator
+      stopMarkerBounce(id);
+      final float density = context.getResources().getDisplayMetrics().density;
+      final float heightPx = (float) (Math.max(1.0, heightDp) * density);
+      final com.google.android.gms.maps.Projection proj = map.getProjection();
+      final LatLng startPos = marker.getPosition();
+      final Point startPt = proj.toScreenLocation(startPos);
+
+      ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
+      animator.setInterpolator(new LinearInterpolator());
+      animator.setDuration(Math.max(1, durationMs));
+      if (repeat <= 0) {
+        animator.setRepeatCount(ValueAnimator.INFINITE);
+      } else {
+        // Each cycle is one up+down; ValueAnimator repeat repeats the 0..1 segment
+        animator.setRepeatCount(Math.max(0, repeat - 1));
+      }
+      animator.addUpdateListener(a -> {
+        try {
+          float f = (float) a.getAnimatedValue(); // 0..1
+          double dy = -Math.sin(Math.PI * f) * heightPx; // smooth up/down
+          Point p = new Point(startPt.x, startPt.y + (int) Math.round(dy));
+          LatLng ll = proj.fromScreenLocation(p);
+          marker.setPosition(ll);
+        } catch (Throwable ignored) {}
+      });
+      animator.addListener(new android.animation.AnimatorListenerAdapter() {
+        @Override public void onAnimationEnd(android.animation.Animator animation) {
+          try { marker.setPosition(startPos); } catch (Throwable ignored) {}
+          markerAnimators.remove(id);
+        }
+        @Override public void onAnimationCancel(android.animation.Animator animation) {
+          try { marker.setPosition(startPos); } catch (Throwable ignored) {}
+          markerAnimators.remove(id);
+        }
+      });
+      markerAnimators.put(id, animator);
+      animator.start();
+    } catch (Throwable ignored) {}
+  }
+
+  private void stopMarkerBounce(String id) {
+    try {
+      ValueAnimator a = markerAnimators.remove(id);
+      if (a != null) a.cancel();
+    } catch (Throwable ignored) {}
+  }
+
+  static class Pulse { Circle circle; ValueAnimator animator; }
+  private void startMarkerPulse(String id, int durationMs, double maxRadiusMeters, int argb, int repeat) {
+    try {
+      Marker marker = markers.get(id);
+      if (marker == null || map == null) return;
+      stopMarkerPulse(id);
+      int baseAlpha = (argb >>> 24) & 0xFF;
+      int rgb = argb & 0x00FFFFFF;
+      Circle circle = map.addCircle(new CircleOptions()
+          .center(marker.getPosition())
+          .radius(0)
+          .strokeWidth(0f)
+          .fillColor((baseAlpha << 24) | rgb)
+      );
+      ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
+      animator.setInterpolator(new LinearInterpolator());
+      animator.setDuration(Math.max(1, durationMs));
+      if (repeat <= 0) animator.setRepeatCount(ValueAnimator.INFINITE); else animator.setRepeatCount(Math.max(0, repeat - 1));
+      animator.addUpdateListener(a -> {
+        try {
+          float t = (float) a.getAnimatedValue();
+          double r = t * maxRadiusMeters;
+          int alpha = (int) Math.round(baseAlpha * (1 - t));
+          circle.setCenter(marker.getPosition());
+          circle.setRadius(Math.max(0.0, r));
+          circle.setFillColor((alpha << 24) | rgb);
+        } catch (Throwable ignored) {}
+      });
+      animator.addListener(new android.animation.AnimatorListenerAdapter() {
+        @Override public void onAnimationEnd(android.animation.Animator animation) {
+          try { circle.remove(); } catch (Throwable ignored) {}
+          pulseMap.remove(id);
+        }
+        @Override public void onAnimationCancel(android.animation.Animator animation) {
+          try { circle.remove(); } catch (Throwable ignored) {}
+          pulseMap.remove(id);
+        }
+      });
+      Pulse p = new Pulse();
+      p.circle = circle;
+      p.animator = animator;
+      pulseMap.put(id, p);
+      animator.start();
+    } catch (Throwable ignored) {}
+  }
+
+  private void stopMarkerPulse(String id) {
+    try {
+      Pulse p = pulseMap.remove(id);
+      if (p != null) {
+        if (p.animator != null) p.animator.cancel();
+        if (p.circle != null) p.circle.remove();
+      }
+    } catch (Throwable ignored) {}
+  }
+
+  private void scheduleRefresh() {
+    try {
+      mapView.post(() -> {
+        try { mapView.invalidate(); } catch (Throwable ignored) {}
+        try {
+          CameraPosition cp = map.getCameraPosition();
+          map.moveCamera(CameraUpdateFactory.newCameraPosition(cp));
+        } catch (Throwable ignored) {}
+      });
+    } catch (Throwable ignored) {}
+  }
+
   static void dispatchPause() { synchronized (INSTANCES) { for (MapViewPlatformView v : INSTANCES) v.onHostPause(); } }
   static void dispatchStop() { synchronized (INSTANCES) { for (MapViewPlatformView v : INSTANCES) v.onHostStop(); } }
   static void dispatchDestroy() { synchronized (INSTANCES) { for (MapViewPlatformView v : INSTANCES) v.onHostDestroy(); } }
@@ -807,3 +997,5 @@ class MapViewPlatformView implements PlatformView, OnMapReadyCallback, MethodCal
     return false; // allow default behavior
   }
 }
+
+

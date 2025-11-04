@@ -16,6 +16,31 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
   private var clusterItems: [String: GmnsClusterItem] = [:]
   private var heatmap: GMUHeatmapTileLayer?
   private var tileOverlays: [String: GMSTileLayer] = [:]
+  private var pulses: [String: PulseHolder] = [:]
+
+  private class PulseHolder {
+    let circle: GMSCircle
+    var link: CADisplayLink
+    var start: CFTimeInterval
+    var duration: Double
+    var repeatsLeft: Int
+    let baseAlpha: CGFloat
+    let baseColor: UIColor
+    weak var marker: GMSMarker?
+    let maxRadius: CLLocationDistance
+
+    init(circle: GMSCircle, link: CADisplayLink, start: CFTimeInterval, duration: Double, repeatsLeft: Int, baseAlpha: CGFloat, baseColor: UIColor, marker: GMSMarker, maxRadius: CLLocationDistance) {
+      self.circle = circle
+      self.link = link
+      self.start = start
+      self.duration = duration
+      self.repeatsLeft = repeatsLeft
+      self.baseAlpha = baseAlpha
+      self.baseColor = baseColor
+      self.marker = marker
+      self.maxRadius = maxRadius
+    }
+  }
 
   // Cluster item model
   class GmnsClusterItem: NSObject, GMUClusterItem {
@@ -56,6 +81,10 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
     let iconDir = caches.appendingPathComponent("gmns_icons", isDirectory: true)
     self.iconDiskCacheURL = iconDir
     try? FileManager.default.createDirectory(at: iconDir, withIntermediateDirectories: true)
+    // Prune disk cache opportunistic on startup
+    DispatchQueue.global(qos: .utility).async { [iconDiskCacheURL] in
+      Self.pruneDiskCache(at: iconDiskCacheURL, maxBytes: 32 * 1024 * 1024, maxFiles: 300)
+    }
 
     super.init()
 
@@ -220,6 +249,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
         if clusteringEnabled { addClusterItem(m); clusterManager?.cluster() }
         else { addMarker(m) }
       }
+      refresh()
       result(nil)
     case "markers#update":
       if let m = call.arguments as? [String: Any], let id = m["id"] as? String {
@@ -235,6 +265,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
           if let rotation = m["rotation"] as? Double { marker.rotation = rotation }
         }
       }
+      refresh()
       result(nil)
     case "markers#setIconBytes":
       if let m = call.arguments as? [String: Any], let id = m["id"] as? String, let marker = markers[id] {
@@ -248,13 +279,49 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
           marker.groundAnchor = CGPoint(x: au, y: av)
         }
       }
+      refresh()
+      result(nil)
+    case "markers#startBounce":
+      if let m = call.arguments as? [String: Any], let id = m["id"] as? String {
+        let durationMs = (m["durationMs"] as? Int) ?? 700
+        let height = (m["height"] as? CGFloat) ?? 20.0
+        let repeatCount = (m["repeat"] as? Int) ?? 0
+        startMarkerBounce(id: id, durationMs: durationMs, height: height, repeatCount: repeatCount)
+      }
+      refresh()
+      result(nil)
+    case "markers#stopBounce":
+      if let id = call.arguments as? String {
+        stopMarkerBounce(id: id)
+      }
+      result(nil)
+    case "markers#startPulse":
+      if let m = call.arguments as? [String: Any], let id = m["id"] as? String {
+        let durationMs = (m["durationMs"] as? Int) ?? 1200
+        let maxRadius = (m["maxRadius"] as? Double) ?? 120.0
+        let repeatCount = (m["repeat"] as? Int) ?? 0
+        if let colorInt = m["color"] as? UInt {
+          startMarkerPulse(id: id, durationMs: durationMs, maxRadius: maxRadius, color: UIColor(rgb: colorInt), repeatCount: repeatCount)
+        } else {
+          startMarkerPulse(id: id, durationMs: durationMs, maxRadius: maxRadius, color: UIColor(rgb: 0x551976D2), repeatCount: repeatCount)
+        }
+      }
+      result(nil)
+    case "markers#stopPulse":
+      if let id = call.arguments as? String {
+        stopMarkerPulse(id: id)
+      }
       result(nil)
     case "markers#remove":
       if let id = call.arguments as? String {
         if clusteringEnabled {
           clusterItems.removeValue(forKey: id)
           recluster()
-        } else if let marker = markers.removeValue(forKey: id) { marker.map = nil }
+        } else if let marker = markers.removeValue(forKey: id) {
+          marker.map = nil
+        }
+        stopMarkerBounce(id: id)
+        stopMarkerPulse(id: id)
       }
       result(nil)
     case "markers#clear":
@@ -264,16 +331,23 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
       }
       markers.values.forEach { $0.map = nil }
       markers.removeAll()
+      // Stop all bounce animations
+      // There is no separate store; removing animations by id suffices when markers are removed.
+      for (_, p) in pulses { p.link.invalidate(); p.circle.map = nil }
+      pulses.removeAll()
       result(nil)
     case "polylines#add":
       if let p = call.arguments as? [String: Any] { addPolyline(p) }
+      refresh()
       result(nil)
     case "polylines#remove":
       if let id = call.arguments as? String, let poly = polylines.removeValue(forKey: id) { poly.map = nil }
+      refresh()
       result(nil)
     case "polylines#clear":
       polylines.values.forEach { $0.map = nil }
       polylines.removeAll()
+      refresh()
       result(nil)
     case "polylines#updatePoints":
       if let p = call.arguments as? [String: Any], let id = p["id"] as? String, let pts = p["points"] as? [[String: Any]], let poly = polylines[id] {
@@ -285,6 +359,7 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
         }
         poly.path = path
       }
+      refresh()
       result(nil)
     case "map#takeSnapshot":
       let renderer = UIGraphicsImageRenderer(bounds: mapView.bounds)
@@ -440,6 +515,94 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
     markers[id] = mk
   }
 
+  private func startMarkerBounce(id: String, durationMs: Int, height: CGFloat, repeatCount: Int) {
+    guard let marker = markers[id] else { return }
+    let duration = max(0.001, Double(durationMs) / 1000.0)
+    if let view = marker.iconView {
+      let anim = CAKeyframeAnimation(keyPath: "transform.translation.y")
+      anim.values = [0, -height, 0]
+      anim.keyTimes = [0, 0.5, 1]
+      anim.duration = duration
+      anim.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn)]
+      anim.isRemovedOnCompletion = true
+      anim.repeatCount = repeatCount <= 0 ? .infinity : Float(repeatCount)
+      view.layer.add(anim, forKey: "gmns_bounce")
+    } else {
+      // Fallback: animate groundAnchor.y on marker layer
+      let layer = marker.layer
+      let base = marker.groundAnchor.y
+      let to = max(0.0, min(1.0, base - min(0.5, height / 40.0)))
+      let up = CABasicAnimation(keyPath: "groundAnchor.y")
+      up.fromValue = base
+      up.toValue = to
+      up.duration = duration / 2.0
+      up.timingFunction = CAMediaTimingFunction(name: .easeOut)
+      let down = CABasicAnimation(keyPath: "groundAnchor.y")
+      down.fromValue = to
+      down.toValue = base
+      down.duration = duration / 2.0
+      down.timingFunction = CAMediaTimingFunction(name: .easeIn)
+      let group = CAAnimationGroup()
+      group.animations = [up, down]
+      group.duration = duration
+      group.isRemovedOnCompletion = true
+      group.repeatCount = repeatCount <= 0 ? .infinity : Float(repeatCount)
+      layer.add(group, forKey: "gmns_bounce_layer")
+    }
+  }
+
+  private func stopMarkerBounce(id: String) {
+    guard let marker = markers[id] else { return }
+    marker.iconView?.layer.removeAnimation(forKey: "gmns_bounce")
+    marker.layer.removeAnimation(forKey: "gmns_bounce_layer")
+  }
+
+  private func startMarkerPulse(id: String, durationMs: Int, maxRadius: CLLocationDistance, color: UIColor, repeatCount: Int) {
+    guard let marker = markers[id] else { return }
+    stopMarkerPulse(id: id)
+    let baseAlpha = color.cgColor.alpha
+    let clearRgb = color.withAlphaComponent(1.0)
+    let circle = GMSCircle(position: marker.position, radius: 0)
+    circle.strokeWidth = 0
+    circle.fillColor = clearRgb.withAlphaComponent(baseAlpha)
+    circle.map = mapView
+    var repeatsLeft = repeatCount <= 0 ? Int.max : repeatCount
+    let duration = max(0.001, Double(durationMs) / 1000.0)
+    let holder = PulseHolder(circle: circle, link: CADisplayLink(target: self, selector: #selector(onPulseTick)), start: CACurrentMediaTime(), duration: duration, repeatsLeft: repeatsLeft, baseAlpha: baseAlpha, baseColor: clearRgb, marker: marker, maxRadius: maxRadius)
+    pulses[id] = holder
+    holder.link.add(to: .main, forMode: .common)
+  }
+
+  private func stopMarkerPulse(id: String) {
+    if let p = pulses.removeValue(forKey: id) {
+      p.link.invalidate()
+      p.circle.map = nil
+    }
+  }
+
+  @objc private func onPulseTick(link: CADisplayLink) {
+    var toStop: [String] = []
+    for (id, p) in pulses {
+      guard let m = p.marker else { toStop.append(id); continue }
+      let now = CACurrentMediaTime()
+      let t = min(1.0, (now - p.start) / p.duration)
+      p.circle.position = m.position
+      p.circle.radius = p.maxRadius * t
+      p.circle.fillColor = p.baseColor.withAlphaComponent(p.baseAlpha * CGFloat(1.0 - t))
+      if t >= 1.0 {
+        if p.repeatsLeft > 1 {
+          p.repeatsLeft -= 1
+          p.start = now
+        } else if p.repeatsLeft == Int.max { // infinite
+          p.start = now
+        } else {
+          toStop.append(id)
+        }
+      }
+    }
+    for id in toStop { stopMarkerPulse(id: id) }
+  }
+
   private func addPolyline(_ p: [String: Any]) {
     guard let id = p["id"] as? String, let pts = p["points"] as? [[String: Any]] else { return }
     polylines[id]?.map = nil
@@ -452,6 +615,13 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
     if let dotted = p["dotted"] as? Bool, dotted { poly.spans = [GMSStyleSpan(style: GMSStrokeStyle.solidColor(.clear)), GMSStyleSpan(style: GMSStrokeStyle.solidColor(poly.strokeColor))] }
     poly.map = mapView
     polylines[id] = poly
+  }
+
+  private func refresh() {
+    DispatchQueue.main.async {
+      self.mapView.setNeedsDisplay()
+      CATransaction.flush()
+    }
   }
 
   // Marker tap
@@ -508,11 +678,32 @@ class MapViewController: NSObject, FlutterPlatformView, GMSMapViewDelegate, GMUC
       if let data = data, let decoded = UIImage(data: data) {
         let resized = self.resize(decoded, maxPoints: maxPoints)
         img = resized
-        if let png = resized.pngData() { try? png.write(to: fileURL) }
+        if let png = resized.pngData() { try? png.write(to: fileURL); Self.pruneDiskCache(at: self.iconDiskCacheURL, maxBytes: 32 * 1024 * 1024, maxFiles: 300) }
       }
       DispatchQueue.main.async { done(img) }
     }
     task.resume()
+  }
+
+  private static func pruneDiskCache(at dir: URL, maxBytes: Int, maxFiles: Int) {
+    let fm = FileManager.default
+    guard let urls = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey], options: .skipsHiddenFiles) else { return }
+    if urls.isEmpty { return }
+    let sorted = urls.sorted { (a, b) -> Bool in
+      let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
+      let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
+      return da < db // oldest first
+    }
+    var total = 0
+    for u in sorted { total += (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+    var count = sorted.count
+    var idx = 0
+    while (total > maxBytes || count > maxFiles) && idx < sorted.count {
+      let u = sorted[idx]
+      let sz = (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+      try? fm.removeItem(at: u)
+      total -= sz; count -= 1; idx += 1
+    }
   }
 
   private func resize(_ image: UIImage, maxPoints: CGFloat) -> UIImage {
