@@ -9,7 +9,8 @@
         <!-- Android Auto projected app service (navigation category scaffold) -->
         <service
             android:name=".car.GmnsCarAppService"
-            android:exported="true">
+            android:exported="true"
+            android:enabled="${gmnsCarAppEnabled}">
             <intent-filter>
                 <action android:name="androidx.car.app.action.BIND_CAR_APP" />
             </intent-filter>
